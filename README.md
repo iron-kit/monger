@@ -92,3 +92,4 @@ member.Save()
 
 * [go-micro](https://github.com/micro/go-micro) golang 的微服务框架
 * [mongodm](https://github.com/zebresel-com/mongodm) 同样也是一个mongodb的ODM库
+* [mongoose](http://mongoosejs.com/)

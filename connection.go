@@ -13,11 +13,12 @@ Connection is the connect manager of mgo.v2 deiver
 */
 type Connection interface {
 	M(interface{}) Model
+	BatchRegister(...Document)
 	Open() error
 	Close()
 	CloneSession() *mgo.Session
 	getModel(name string) Model
-	registerSchemaAndGetModel(schemas Schema) Model
+	registerAndGetModel(document Document) Model
 	GetConfig() *Config
 }
 
@@ -91,27 +92,33 @@ func (conn *connection) getModel(name string) Model {
 	panic(fmt.Sprintf("[monger] Schema '%v' is not registered ", nameLower))
 }
 
-func (conn *connection) registerSchemaAndGetModel(schema Schema) Model {
-	if schema == nil {
-		panic("[monger] schema can not be nil")
+func (conn *connection) registerAndGetModel(document Document) Model {
+	if document == nil {
+		panic("[monger] document can not be nil")
 	}
-	collectionName := schema.GetName()
-	reflectType := reflect.TypeOf(schema)
+
+	collectionName := document.CollectionName()
+	reflectType := reflect.TypeOf(document)
 	typeName := strings.ToLower(reflectType.Elem().Name())
+
+	if collectionName == "" {
+		collectionName = typeName
+	}
 
 	if _, ok := conn.modelStore[typeName]; !ok {
 		collection := conn.Session.DB("").C(collectionName)
-		model := &model{
+		mdl := &model{
 			collection,
 			conn,
 		}
 
-		conn.modelStore[typeName] = model
-		fmt.Printf("[monger] Type '%v' has registered", typeName)
-		return model
+		conn.modelStore[typeName] = mdl
+		fmt.Printf("[monger] Type '%v' has registered \r\n", typeName)
+
+		return mdl
 	}
 
-	fmt.Printf("[monger] Tried to register type '%v' twice", typeName)
+	fmt.Printf("[monger] Tried to register type '%v' twice \r\n", typeName)
 	return conn.modelStore[typeName]
 }
 
@@ -120,9 +127,16 @@ func (conn *connection) M(args interface{}) Model {
 		return conn.getModel(name)
 	}
 
-	if schema, ok := args.(Schema); ok {
-		return conn.registerSchemaAndGetModel(schema)
+	if doc, ok := args.(Document); ok {
+		return conn.registerAndGetModel(doc)
+		// return conn.registerSchemaAndGetModel(schema)
 	}
 
 	return nil
+}
+
+func (conn *connection) BatchRegister(docs ...Document) {
+	for _, v := range docs {
+		conn.registerAndGetModel(v)
+	}
 }

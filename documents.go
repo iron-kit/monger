@@ -23,6 +23,7 @@ type Document interface {
 	GetCollection() *mgo.Collection
 	SetCollection(*mgo.Collection)
 	SetConnection(Connection)
+	CollectionName() string
 }
 
 type BaseDocument struct {
@@ -33,6 +34,10 @@ type BaseDocument struct {
 
 	collection *mgo.Collection
 	connection Connection
+}
+
+func (doc *BaseDocument) CollectionName() string {
+	return ""
 }
 
 func (doc *BaseDocument) GetID() bson.ObjectId {

@@ -19,18 +19,10 @@ type Document interface {
 	SetDeleted(bool)
 	IsDeleted() bool
 
-	Get(field string) interface{}
-	Save() error
-	Update(interface{}) (error, map[string]interface{})
-	Validate(...interface{}) (bool, []error)
-	DefaultValidate() (bool, []error)
-
-	SetInstance(Document)
+	GetConnection() Connection
+	GetCollection() *mgo.Collection
 	SetCollection(*mgo.Collection)
 	SetConnection(Connection)
-	// Instance() Document
-	// Collection() *mgo.Collation
-	// Connection() Connection
 }
 
 type BaseDocument struct {
@@ -39,9 +31,8 @@ type BaseDocument struct {
 	UpdatedAt time.Time     `json:"updatedAt" bson:"updatedAt"`
 	Deleted   bool          `json:"-" bson:"deleted"`
 
-	instance   Document
-	connection Connection
 	collection *mgo.Collection
+	connection Connection
 }
 
 func (doc *BaseDocument) GetID() bson.ObjectId {
@@ -76,80 +67,18 @@ func (doc *BaseDocument) IsDeleted() bool {
 	return doc.Deleted
 }
 
-func (self *BaseDocument) Get(field string) interface{} {
-	panic("not implemented")
-}
-
-func (doc *BaseDocument) Save() error {
-	if doc.instance == nil || doc.collection == nil || doc.connection == nil {
-		panic("[monger] Please use Model.Create(document Document) function to build a saveable Document")
-	}
-	now := time.Now()
-	config := doc.connection.GetConfig()
-
-	// TODO Implemented validate document
-	session := doc.connection.CloneSession()
-	defer session.Close()
-
-	collection := session.DB(config.DBName).C(doc.collection.Name)
-
-	var err error
-
-	// TODO 处理关联关系
-
-	// 检测 ID 是否已经设置，如果未设置判定为插入, 否则判定为更新。
-	if len(doc.ID) == 0 {
-		doc.SetUpdatedAt(now)
-		doc.SetCreatedAt(now)
-
-		doc.SetID(bson.NewObjectId())
-
-		err = collection.Insert(doc.instance)
-
-		if err != nil {
-			if mgo.IsDup(err) {
-				err = &DuplicateDocumentError{NewError("Duplicate Key")}
-			}
-		}
-	} else {
-		doc.SetUpdatedAt(now)
-		_, erro := collection.UpsertId(doc.ID, doc.instance)
-
-		if erro != nil {
-			if mgo.IsDup(erro) {
-				err = &DuplicateDocumentError{NewError("Duplicate Key")}
-			} else {
-				err = erro
-			}
-		}
-	}
-
-	return err
-}
-
-func (doc *BaseDocument) Update(interface{}) (error, map[string]interface{}) {
-	panic("not implemented")
-}
-
-func (doc *BaseDocument) Validate(...interface{}) (bool, []error) {
-
-	// TODO Implemented BaseDocument.Validate function
-	panic("not implemented")
-}
-
-func (doc *BaseDocument) DefaultValidate() (bool, []error) {
-	// TODO Implemented BaseDocument.DefaultValidate function
-	panic("not implemented")
-}
-
-func (doc *BaseDocument) SetInstance(d Document) {
-	doc.instance = d
-}
-
 func (doc *BaseDocument) SetCollection(collection *mgo.Collection) {
 	doc.collection = collection
 }
 
 func (doc *BaseDocument) SetConnection(c Connection) {
 	doc.connection = c
+}
+
+func (doc *BaseDocument) GetCollection() *mgo.Collection {
+	return doc.collection
+}
+
+func (doc *BaseDocument) GetConnection() Connection {
+	return doc.connection
 }

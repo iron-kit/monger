@@ -5,8 +5,10 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
+/*
+
+ */
 type Model interface {
-	Create(document Document) Document
 	Find(query ...interface{}) Query
 	FindByID(id bson.ObjectId) Query
 	FindOne(query ...bson.M) Query
@@ -15,14 +17,6 @@ type Model interface {
 type model struct {
 	collection *mgo.Collection
 	connection Connection
-}
-
-func (m *model) Create(document Document) Document {
-	document.SetInstance(document)
-	document.SetCollection(m.collection)
-	document.SetConnection(m.connection)
-
-	return document
 }
 
 func (m *model) Find(query ...interface{}) Query {

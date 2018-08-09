@@ -1,6 +1,7 @@
 package monger
 
 import (
+	//"fmt"
 	"gopkg.in/mgo.v2"
 	"reflect"
 )
@@ -22,7 +23,7 @@ type Query interface {
 	Populate(fields ...string) Query
 	Exec(result interface{}) error
 	One(document Document) error
-	All(documents []Document) error
+	All(documents interface{}) error
 }
 
 type query struct {
@@ -96,10 +97,12 @@ func (q *query) buildQuery(query *mgo.Query) {
 }
 
 func (q *query) One(document Document) error {
+	q.multiple = false
 	return q.Exec(document)
 }
 
-func (q *query) All(documents []Document) error {
+func (q *query) All(documents interface{}) error {
+	q.multiple = true
 	return q.Exec(documents)
 }
 
@@ -109,40 +112,82 @@ func (q *query) Exec(result interface{}) error {
 		panic("[Monger] The result is required")
 	}
 
+	multiple := false
+
 	resType := reflect.TypeOf(result)
 
-	isListResult := func() bool {
-		if resType.Kind() == reflect.Ptr && resType.Elem().Kind() == reflect.Slice {
-			// 向结果集中注入连接参数
-			if documents, ok := result.([]Document); ok {
-				for _, doc := range documents {
-					doc.SetInstance(doc)
-					doc.SetCollection(q.collection)
-					doc.SetConnection(q.connection)
-				}
-			} else {
-				panic("[Monger] Every one of resultset must be Document")
-			}
-			return true
-		}
-		// 向结果集中注入连接参数
-		if doc, ok := result.(Document); ok {
-			doc.SetInstance(doc)
-			doc.SetCollection(q.collection)
-			doc.SetConnection(q.connection)
-		} else {
-			panic("[Monger] The resultset must be a Document")
-		}
-		return false
-	}()
+	if resType.Kind() == reflect.Ptr && resType.Elem().Kind() == reflect.Slice {
+		multiple = true
+		// return true
+	} else if d, ok := result.(Document); ok {
+		multiple = false
+		d.SetCollection(q.collection)
+		d.SetConnection(q.connection)
+	} else {
+		panic("[Monger] The resultset must be a Document")
+	}
+
+	// if resType.Kind() != reflect.Ptr {
+	// 	// 参数不是指针 且不是切片视为异常
+	// 	if resType.Elem().Kind() != reflect.Slice {
+	// 		panic("[Monger] The resultset must be a pointer")
+	// 	}
+
+	// 	multiple = true
+	// 	// panic("[Monger] The resultset must be a pointer")
+	// } else {
+	// 	if resType.Elem().Kind() == reflect.Slice {
+	// 		multiple = true
+	// 	} else {
+	// 		multiple = false
+	// 	}
+	// }
+
+	// isListResult := func() bool {
+	// 	if resType.Kind() == reflect.Ptr && resType.Elem().Kind() == reflect.Slice {
+
+	// 		return true
+	// 	}
+
+	// 	// 向结果集中注入连接参数
+	// 	if doc, ok := result.(Document); ok {
+	// 		doc.SetCollection(q.collection)
+	// 		doc.SetConnection(q.connection)
+	// 	} else {
+	// 		panic("[Monger] The resultset must be a Document")
+	// 	}
+
+	// 	return false
+	// }()
 
 	query := q.collection.Find(q.query)
 	q.buildQuery(query)
 
 	var err error
 
-	if isListResult {
+	if multiple {
 		err = query.All(result)
+		resultv := reflect.ValueOf(result)
+		slicev := resultv.Elem()
+
+		for i := 0; i < slicev.Len(); i++ {
+			ele := slicev.Index(i)
+			if doc, ok := ele.Interface().(Document); ok {
+				// fmt.Println(ele, "是 Document")
+				doc.SetCollection(q.collection)
+				doc.SetConnection(q.connection)
+
+			} else if ele.Type().Kind() == reflect.Struct {
+				if doc, ok := ele.Addr().Interface().(Document); ok {
+					doc.SetCollection(q.collection)
+					doc.SetConnection(q.connection)
+				} else {
+					panic("[Monger] The resultset must be a Document Slice")
+				}
+			} else {
+				panic("[Monger] The resultset must be a Document Slice")
+			}
+		}
 	} else {
 		err = query.One(result)
 	}

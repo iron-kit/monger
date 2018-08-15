@@ -22,7 +22,10 @@ type Query interface {
 	Count() (n int, err error)
 	Populate(fields ...string) Query
 	Exec(result interface{}) error
-	One(document Document) error
+	// Delete() error
+	Remove() error
+	RemoveAll() (info *mgo.ChangeInfo, err error)
+	One(document Documenter) error
 	All(documents interface{}) error
 }
 
@@ -73,6 +76,14 @@ func (q *query) Count() (n int, err error) {
 	return q.collection.Find(q.query).Count()
 }
 
+func (q *query) Remove() error {
+	return q.collection.Remove(q.query)
+}
+
+func (q *query) RemoveAll() (info *mgo.ChangeInfo, err error) {
+	return q.collection.RemoveAll(q.query)
+}
+
 func (q *query) Populate(fields ...string) Query {
 	panic("not implemented")
 }
@@ -96,7 +107,7 @@ func (q *query) buildQuery(query *mgo.Query) {
 
 }
 
-func (q *query) One(document Document) error {
+func (q *query) One(document Documenter) error {
 	q.multiple = false
 	return q.Exec(document)
 }
@@ -118,47 +129,15 @@ func (q *query) Exec(result interface{}) error {
 
 	if resType.Kind() == reflect.Ptr && resType.Elem().Kind() == reflect.Slice {
 		multiple = true
-		// return true
-	} else if d, ok := result.(Document); ok {
+	} else if _, ok := result.(Documenter); ok {
 		multiple = false
-		d.SetCollection(q.collection)
-		d.SetConnection(q.connection)
 	} else {
 		panic("[Monger] The resultset must be a Document")
 	}
 
-	// if resType.Kind() != reflect.Ptr {
-	// 	// 参数不是指针 且不是切片视为异常
-	// 	if resType.Elem().Kind() != reflect.Slice {
-	// 		panic("[Monger] The resultset must be a pointer")
-	// 	}
-
-	// 	multiple = true
-	// 	// panic("[Monger] The resultset must be a pointer")
-	// } else {
-	// 	if resType.Elem().Kind() == reflect.Slice {
-	// 		multiple = true
-	// 	} else {
-	// 		multiple = false
-	// 	}
-	// }
-
-	// isListResult := func() bool {
-	// 	if resType.Kind() == reflect.Ptr && resType.Elem().Kind() == reflect.Slice {
-
-	// 		return true
-	// 	}
-
-	// 	// 向结果集中注入连接参数
-	// 	if doc, ok := result.(Document); ok {
-	// 		doc.SetCollection(q.collection)
-	// 		doc.SetConnection(q.connection)
-	// 	} else {
-	// 		panic("[Monger] The resultset must be a Document")
-	// 	}
-
-	// 	return false
-	// }()
+	if multiple != q.multiple {
+		panic("[Monger] Error result set")
+	}
 
 	query := q.collection.Find(q.query)
 	q.buildQuery(query)
@@ -167,27 +146,6 @@ func (q *query) Exec(result interface{}) error {
 
 	if multiple {
 		err = query.All(result)
-		resultv := reflect.ValueOf(result)
-		slicev := resultv.Elem()
-
-		for i := 0; i < slicev.Len(); i++ {
-			ele := slicev.Index(i)
-			if doc, ok := ele.Interface().(Document); ok {
-				// fmt.Println(ele, "是 Document")
-				doc.SetCollection(q.collection)
-				doc.SetConnection(q.connection)
-
-			} else if ele.Type().Kind() == reflect.Struct {
-				if doc, ok := ele.Addr().Interface().(Document); ok {
-					doc.SetCollection(q.collection)
-					doc.SetConnection(q.connection)
-				} else {
-					panic("[Monger] The resultset must be a Document Slice")
-				}
-			} else {
-				panic("[Monger] The resultset must be a Document Slice")
-			}
-		}
 	} else {
 		err = query.One(result)
 	}
@@ -197,6 +155,8 @@ func (q *query) Exec(result interface{}) error {
 	} else if err != nil {
 		return err
 	}
+
+	initDocuments(result, q.collection, q.connection, true)
 
 	return nil
 }

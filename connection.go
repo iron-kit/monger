@@ -13,12 +13,12 @@ Connection is the connect manager of mgo.v2 deiver
 */
 type Connection interface {
 	M(interface{}) Model
-	BatchRegister(...Document)
+	BatchRegister(...Documenter)
 	Open() error
 	Close()
 	CloneSession() *mgo.Session
 	getModel(name string) Model
-	registerAndGetModel(document Document) Model
+	registerAndGetModel(document Documenter) Model
 	GetConfig() *Config
 }
 
@@ -92,7 +92,7 @@ func (conn *connection) getModel(name string) Model {
 	panic(fmt.Sprintf("[monger] Schema '%v' is not registered ", nameLower))
 }
 
-func (conn *connection) registerAndGetModel(document Document) Model {
+func (conn *connection) registerAndGetModel(document Documenter) Model {
 	if document == nil {
 		panic("[monger] document can not be nil")
 	}
@@ -127,7 +127,7 @@ func (conn *connection) M(args interface{}) Model {
 		return conn.getModel(name)
 	}
 
-	if doc, ok := args.(Document); ok {
+	if doc, ok := args.(Documenter); ok {
 		return conn.registerAndGetModel(doc)
 		// return conn.registerSchemaAndGetModel(schema)
 	}
@@ -135,7 +135,7 @@ func (conn *connection) M(args interface{}) Model {
 	return nil
 }
 
-func (conn *connection) BatchRegister(docs ...Document) {
+func (conn *connection) BatchRegister(docs ...Documenter) {
 	for _, v := range docs {
 		conn.registerAndGetModel(v)
 	}

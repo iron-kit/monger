@@ -52,38 +52,111 @@ if err != nil {
 
 ```
 
-### Create A Schema
+### Define A Schema
 
 ```golang
 
 type Member struct {
-  monger.BaseDocument `json:",inline" bson:",inline"`
+  monger.Document `json:",inline" bson:",inline"`
   
   Name string `json:"name,omitempty" bson:"name, omitempty"`
+  Email string `json:"email,omitempty" bson:"email, omitempty"`
   Password string `json:"-" bson:"password"`
+
 }
 
-MemberSchema := monger.NewSchema("collection_name", &Member{})
+// Default collection of this schema is member
+// you can custom use hook function
+func (m *Member) CollectionName() string {
+
+  // this schema's collection is Member
+  return "Memebr"
+}
 
 ```
 
-### Create A Model
+### HasOne RelationShip
 
 ```golang
-connection.M(MemberSchema)
+
+type Member struct {
+  monger.Document `json:",inline" bson:",inline"`
+  
+  Mobile string `json:"mobile,omitempty" bson:"mobile,omitempty"`
+  Email string `json:"email,omitempty" bson:"email,omitempty"`
+  Password string `json:"-" bson:"password"`
+
+  Profile *Profile `json:"profile,omitempty" bson:"profile" monger:"hasOne;foreignkey:MemberID"`
+}
+
+type Profile struct {
+  monger.Document `json:",inline" bson:",inline"`
+
+  FirstName string `json:"firstname,omitempty" bson:"firstname,omitempty"`
+  LastName string `json:"lastname,omitempty" bson:"lastname,omitempty"`
+  MemberID string `json:"-" bson:"member_id"`
+}
 ```
 
-### Get A Model
+### BelongTo RelationShip
 
-```golane
+```golang
+
+type Member struct {
+  monger.Document    `json:",inline" bson:",inline"`
+  
+  Mobile   string    `json:"mobile,omitempty" bson:"mobile,omitempty"`
+  Email    string    `json:"email,omitempty" bson:"email,omitempty"`
+  Password string    `json:"-" bson:"password"`
+  Profile  *Profile  `json:"profile,omitempty" bson:"profile" monger:"hasOne;foreignkey:MemberID"`
+}
+
+type Profile struct {
+  monger.Document   `json:",inline" bson:",inline"`
+
+  FirstName string  `json:"firstname,omitempty" bson:"firstname,omitempty"`
+  LastName  string  `json:"lastname,omitempty" bson:"lastname,omitempty"`
+  MemberID  string  `json:"-" bson:"member_id"`
+  Member    *Member `json:"member,omitempty" bson:"member" monger:"belongTo;foreignkey:"MemberID"`
+}
+```
+
+### Use Model
+
+```golang
+
+// register a model
+connection.M(&Member{})
+
+// batch register
+connection.BatchRegister(
+  &Member{},
+  &Profile{},
+)
+
+// get a model
 MemberModel := connection.M("Member")
+ProfileModel := connection.M("Profile")
 
-// Create member document
-member := MemberModel.Create(&Member{})
+// initial a document
 
-// save to db
+member := &Member{
+  Mobile: "13423453456",
+}
+MemberModel.Doc(member)
+member.Password = "123456"
+member.Profile = &Profile{
+  FirstName: "zhou",
+  LastName: "Alixe",
+}
+
+// insert a new document
 member.Save()
 
+// update a new document
+member.ID = bson.ObjectIdHex("id")
+member.Password = "1234567"
+member.Save()
 ```
 
 ## 感谢
@@ -92,4 +165,4 @@ member.Save()
 
 * [go-micro](https://github.com/micro/go-micro) golang 的微服务框架
 * [mongodm](https://github.com/zebresel-com/mongodm) 同样也是一个mongodb的ODM库
-* [mongoose](http://mongoosejs.com/)
+* [mongoose](http://mongoosejs.com/) mongodb odm library of nodejs

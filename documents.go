@@ -1,10 +1,10 @@
 package monger
 
 import (
-	"fmt"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -16,7 +16,7 @@ type Documenter interface {
 	// DocumentManager
 	DocumentHooker
 	bson.Getter
-	bson.Setter
+	// bson.Setter
 	GetID() bson.ObjectId
 	SetID(bson.ObjectId)
 
@@ -35,32 +35,82 @@ type Documenter interface {
 	DefaultValidate() (bool, []error)
 
 	getDocumentManager() *documentManager
+	dM() *documentManager
 }
 
 type documentManager struct {
-	document    Documenter
-	connection  Connection
-	collection  *mgo.Collection
-	documentMap map[string]interface{}
+	document   Documenter
+	connection Connection
+	collection *mgo.Collection
+	// documentMap map[string]interface{}
 }
 
 type Document struct {
 	dm        documentManager
-	ID        bson.ObjectId `json:"id" monger:"column:_id"`
-	CreatedAt time.Time     `json:"createdAt" monger:"column:createdAt"`
-	UpdatedAt time.Time     `json:"updatedAt" monger:"column:updatedAt"`
-	Deleted   bool          `json:"-" monger:"column:deleted"`
+	ID        bson.ObjectId `json:"id" bson:"_id,omitempty"`
+	CreatedAt time.Time     `json:"createdAt" bson:"createdAt,omitempty"`
+	UpdatedAt time.Time     `json:"updatedAt" bson:"updatedAt,omitempty"`
+	Deleted   bool          `json:"-" bson:"deleted"`
+	Upsert    bool          `json:"-" bson:"-"`
 }
 
 func D(doc Documenter, collection *mgo.Collection, connection Connection) Documenter {
-	dm := doc.getDocumentManager()
+
+	dm := doc.dM()
 	dm.SetCollection(collection)
 	dm.SetConnection(connection)
 	dm.SetDocument(doc)
 	return doc
 }
 
-func initDocuments(documents interface{}, collection *mgo.Collection, connection Connection, bind bool) {
+func initDocumentData(docs interface{}, isCreate bool) {
+	if docs == nil {
+		return
+	}
+
+	now := time.Now()
+
+	docst := reflect.TypeOf(docs)
+	if docst.Kind() == reflect.Ptr && docst.Elem().Kind() == reflect.Slice {
+		docsv := reflect.ValueOf(docs)
+		slicev := docsv.Elem()
+		for i := 0; i < slicev.Len(); i++ {
+			slicevItem := slicev.Index(i)
+			if doc, ok := slicevItem.Interface().(Documenter); ok {
+				if isCreate {
+					doc.SetCreatedAt(now)
+					doc.SetID(bson.NewObjectId())
+				}
+				doc.SetUpdatedAt(now)
+
+			} else if slicevItem.Type().Kind() == reflect.Struct {
+				if doc, ok := slicevItem.Addr().Interface().(Documenter); ok {
+					doc.SetUpdatedAt(now)
+					if isCreate {
+						doc.SetCreatedAt(now)
+						doc.SetID(bson.NewObjectId())
+					}
+				} else {
+					panic("[Monger] The first param must be []Document Slice")
+				}
+			} else {
+				panic("[Monger] The first param must be []Document Slice")
+			}
+		}
+	} else if d, ok := docs.(Documenter); ok {
+		// not slice
+		if isCreate {
+			d.SetCreatedAt(now)
+			d.SetID(bson.NewObjectId())
+		}
+		d.SetUpdatedAt(now)
+	} else {
+		// panic("[Monger] The first param must be Document")
+		return
+	}
+}
+
+func initDocuments(documents interface{}, collection *mgo.Collection, connection Connection) {
 	if documents == nil {
 		return
 	}
@@ -78,14 +128,14 @@ func initDocuments(documents interface{}, collection *mgo.Collection, connection
 			ele := slicev.Index(i)
 			if doc, ok := ele.Interface().(Documenter); ok {
 				// fmt.Println(ele, "是 Document")
-				dm = doc.getDocumentManager()
+				dm = doc.dM()
 				dm.SetCollection(collection)
 				dm.SetConnection(connection)
 				dm.SetDocument(doc)
 
 			} else if ele.Type().Kind() == reflect.Struct {
 				if doc, ok := ele.Addr().Interface().(Documenter); ok {
-					dm = doc.getDocumentManager()
+					dm = doc.dM()
 					dm.SetCollection(collection)
 					dm.SetConnection(connection)
 					dm.SetDocument(doc)
@@ -99,16 +149,13 @@ func initDocuments(documents interface{}, collection *mgo.Collection, connection
 		}
 	} else if d, ok := documents.(Documenter); ok {
 		// not slice
-		dm = d.getDocumentManager()
+		dm = d.dM()
 		dm.SetCollection(collection)
 		dm.SetConnection(connection)
 		dm.SetDocument(d)
 		// dm.bindDocData()
 	} else {
 		panic("[Monger] The first param must be Document")
-	}
-	if bind {
-		dm.bindDocData()
 	}
 	return
 }
@@ -138,55 +185,18 @@ func (dm *documentManager) isNil() bool {
 	return false
 }
 
-func (dm *documentManager) bindDocData() {
-	// TODO init the document data
-	document := dm.document
-
-	doct := reflect.TypeOf(document)
-	docv := reflect.ValueOf(document)
-	dovk := doct.Kind()
-
-	if dovk == reflect.Ptr {
-		docv = docv.Elem()
-	}
-
-	structInfo, err := getDocumentStructInfo(doct)
-
-	if err != nil {
-		panic(err)
-	}
-
-	for _, info := range structInfo.FieldsList {
-		// 填充数据
-		var field reflect.Value
-		// if info.Relate == "" && info.Relate
-		if info.Inline == nil {
-			field = docv.Field(info.Num)
-		} else {
-			field = docv.FieldByIndex(info.Inline)
-			// continue
-		}
-
-		// field.Set()
-		if v, ok := dm.documentMap[info.Key]; ok {
-			field.Set(reflect.ValueOf(v))
-		} else {
-			field.Set(reflect.New(field.Type()).Elem())
-		}
-		// docv.Field()
-	}
-	return
-}
-
-func (dm *documentManager) setDocumentMap(data map[string]interface{}) {
-	dm.documentMap = data
-}
-
 func (dm *documentManager) SetDocument(document Documenter) {
 	dm.document = document
 }
 
+func (doc *Document) dM() *documentManager {
+	return &doc.dm
+}
+
 func (doc *Document) getDocumentManager() *documentManager {
+	if doc.dm.isNil() {
+		panic("[Monger] Please init the document")
+	}
 	return &doc.dm
 }
 
@@ -230,15 +240,97 @@ func (doc *Document) BeforeSave() {
 	return
 }
 
+// func (doc *Document) executeHasOne()
+
 func (doc *Document) executeRelate(dm *documentManager) {
+	doct := reflect.TypeOf(dm.document)
+	docv := reflect.ValueOf(dm.document)
+	if doct.Kind() == reflect.Ptr {
+		docv = docv.Elem()
+	}
+	// fmt.Println(dm.document)
+	structInfo, err := getDocumentStructInfo(doct)
 
-	// hook the relationship function
-	// dm.document.RelationShip()
+	if err != nil {
+		panic(err)
+	}
+	// fmt.Println(structInfo.FieldsList)
+	for _, fieldInfo := range structInfo.RelateFieldsList {
+		var fieldt reflect.Type
+		if doct.Kind() == reflect.Ptr {
+			fieldt = doct.Elem()
+		} else {
+			fieldt = doct
+		}
+
+		field := docv.Field(fieldInfo.Num)
+		if field.Kind() != reflect.Ptr {
+			// field = field.Elem()
+			break
+		}
+		if field.IsNil() {
+			break
+		}
+		fieldv := field.Elem()
+
+		modelName := fieldInfo.RelateType.Elem().Name()
+		mdl := dm.connection.M(modelName)
+		mdl.Doc(field.Interface())
+
+		switch fieldInfo.Relate {
+		case HasOne:
+			fieldID := fieldv.FieldByName("ID").Interface().(bson.ObjectId)
+			foreignkeyField := fieldv.FieldByName(fieldInfo.Foreignkey)
+			foreignkeyField.Set(reflect.ValueOf(dm.document.GetID()))
+			bsonM := bson.M{}
+			foreignkeyFieldt, _ := fieldt.Field(fieldInfo.Num).Type.Elem().FieldByName(fieldInfo.Foreignkey)
+			tags := parseFieldTag(foreignkeyFieldt.Tag.Get("bson"))
+			colName := strings.ToLower(foreignkeyFieldt.Name)
+			if v, ok := tags["column"]; ok && v != "" {
+				colName = v
+			}
+
+			bsonM[colName] = dm.document.GetID()
+
+			if mdl.Count(bsonM) > 0 {
+				field.FieldByName("Upsert").SetBool(true)
+				mdl.Upsert(bsonM, field.Interface())
+			} else if len(fieldID) == 0 {
+				field.FieldByName("Upsert").SetBool(false)
+				mdl.Insert(field.Interface())
+			} else {
+				field.FieldByName("Upsert").SetBool(true)
+				mdl.UpsertID(fieldID, field.Interface())
+			}
+		case BelongTo:
+
+			foreignkeyField := docv.FieldByName(fieldInfo.Foreignkey)
+			id := foreignkeyField.Interface().(bson.ObjectId)
+			bsonM := bson.M{
+				"_id": foreignkeyField.Interface(),
+			}
+			if mdl.Count(bsonM) > 0 {
+				field.FieldByName("Upsert").SetBool(true)
+				mdl.Upsert(bsonM, field.Interface())
+			} else if len(id) == 0 {
+				if field.Kind() == reflect.Ptr {
+					field.Elem().FieldByName("Upsert").SetBool(false)
+				} else {
+					field.FieldByName("Upsert").SetBool(false)
+				}
+
+				mdl.Insert(field.Interface())
+				doc := field.Interface().(Documenter)
+				// docv.FieldByName()
+				foreignkeyField.Set(reflect.ValueOf(doc.GetID()))
+			} else {
+				field.FieldByName("Upsert").SetBool(true)
+				mdl.UpsertID(id, field.Interface())
+			}
+		default:
+		}
+	}
 	return
-
-	// for name, rs := range doc.refs {
-	// 	rs.
-	// }
 }
 
 func (doc *Document) dbCollection() (*mgo.Collection, func()) {
@@ -264,7 +356,9 @@ func (doc *Document) insert(docs ...interface{}) error {
 	defer session.Close()
 
 	collection := session.DB(config.DBName).C(dm.collection.Name)
-	//
+	// TODO 处理关联关系的插入
+	doc.executeRelate(doc.getDocumentManager())
+
 	return collection.Insert(docs...)
 }
 
@@ -272,20 +366,20 @@ func (doc *Document) upsertID(id interface{}, docs interface{}) (*mgo.ChangeInfo
 	collection, close := doc.dbCollection()
 
 	defer close()
-
+	doc.executeRelate(doc.getDocumentManager())
 	return collection.UpsertId(id, docs)
 }
 
 func (doc *Document) Save() error {
 	dm := doc.dm
 	if dm.isNil() {
-		panic("[monger] Please init the document")
+		panic("[Monger] Please init the document")
 	}
 	now := time.Now()
 
 	var err error
 
-	doc.executeRelate(&dm)
+	// doc.executeRelate(&dm)
 
 	// 检测 ID 是否已经设置，如果未设置判定为插入, 否则判定为更新。
 	if len(dm.document.GetID()) == 0 {
@@ -326,6 +420,9 @@ func (doc *Document) DefaultValidate() (bool, []error) {
 }
 
 func (doc *Document) GetBSON() (interface{}, error) {
+	if doc.dm.isNil() {
+		panic("[Monger] Please init the document")
+	}
 	dm := doc.getDocumentManager()
 	rawMap := make(map[string]interface{})
 	// typeOfDocument := reflect.TypeOf(dm.document)
@@ -351,34 +448,18 @@ func (doc *Document) GetBSON() (interface{}, error) {
 			val = structv.FieldByIndex(v.Inline)
 		}
 
-		// if v.InlineMap >= 0 {
-		// 	m := v.Field(sinfo.InlineMap)
-		// 	if m.Len() > 0 {
-		// 		for _, k := range m.MapKeys() {
-		// 			ks := k.String()
-		// 			if _, found := sinfo.FieldsMap[ks]; found {
-		// 				panic(fmt.Sprintf("Can't have key %q in inlined map; conflicts with struct field", ks))
-		// 			}
-		// 			e.addElem(ks, m.MapIndex(k), false)
-		// 		}
-		// 	}
-		// }
-		if v.Relate == "" {
+		if v.Relate == "" && !isZero(val) {
 			rawMap[v.Key] = val.Interface()
 		}
 	}
 
-	fmt.Println(rawMap, "Hello")
+	if doc.Upsert {
+		bm := bson.M{
+			"$set": rawMap,
+		}
+		doc.Upsert = false
+		return bm, nil
+	}
 
 	return rawMap, nil
-}
-
-func (doc *Document) SetBSON(raw bson.Raw) error {
-	// panic("not implemented")
-	dataMap := make(map[string]interface{})
-
-	raw.Unmarshal(dataMap)
-	doc.dm.setDocumentMap(dataMap)
-
-	return nil
 }

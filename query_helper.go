@@ -156,7 +156,7 @@ func (q *query) Exec(result interface{}) error {
 		return err
 	}
 
-	initDocuments(result, q.collection, q.connection, true)
+	initDocuments(result, q.collection, q.connection)
 
 	return nil
 }

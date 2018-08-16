@@ -5,7 +5,46 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 )
+
+var typeTime = reflect.TypeOf(time.Time{})
+
+func isZero(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.String:
+		return len(v.String()) == 0
+	case reflect.Ptr, reflect.Interface:
+		return v.IsNil()
+	case reflect.Slice:
+		return v.Len() == 0
+	case reflect.Map:
+		return v.Len() == 0
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return v.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return v.Float() == 0
+	case reflect.Bool:
+		return !v.Bool()
+	case reflect.Struct:
+		vt := v.Type()
+		if vt == typeTime {
+			return v.Interface().(time.Time).IsZero()
+		}
+		for i := 0; i < v.NumField(); i++ {
+			if vt.Field(i).PkgPath != "" && !vt.Field(i).Anonymous {
+				continue // Private field
+			}
+			if !isZero(v.Field(i)) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
 
 func parseFieldTags(tag reflect.StructTag) map[string]string {
 	tagMap := map[string]string{}
@@ -27,39 +66,68 @@ func parseFieldTags(tag reflect.StructTag) map[string]string {
 	return tagMap
 }
 
-func parseFieldTag(tag string) map[string]string {
-	tagMap := map[string]string{}
-	mongerTags := strings.Split(tag, ";")
+func parseFieldTag(tags ...string) map[string]string {
 
-	for _, t := range mongerTags {
-		if t == "" {
+	tagMap := map[string]string{}
+
+	for _, tag := range tags {
+		// mongerTags := []string{}
+
+		mongerTags := strings.Split(tag, ";")
+		if len(mongerTags) == 1 {
+			mongerTags = strings.Split(tag, ",")
+
+			for _, t := range mongerTags {
+				// if t == "" {
+				// 	continue
+				// }
+				switch t {
+				case "inline":
+					tagMap["inline"] = "true"
+				case "omitempty":
+					tagMap["omitempty"] = "true"
+				default:
+					tagMap["column"] = t
+				}
+			}
 			continue
 		}
-		tgArr := strings.Split(t, ":")
-		if len(tgArr) > 1 {
-			tagMap[tgArr[0]] = tgArr[1]
-		} else {
-			tagMap[tgArr[0]] = "true"
-		}
-	}
 
+		for _, t := range mongerTags {
+			if t == "" {
+				continue
+			}
+			tgArr := strings.Split(t, ":")
+			if len(tgArr) > 1 {
+				tagMap[tgArr[0]] = tgArr[1]
+			} else {
+				tagMap[tgArr[0]] = "true"
+			}
+		}
+
+	}
 	return tagMap
 }
 
 type docStructInfo struct {
-	FieldsMap  map[string]docFieldInfo
-	FieldsList []docFieldInfo
-	InlineMap  int
-	Zero       reflect.Value
+	FieldsMap        map[string]docFieldInfo
+	FieldsList       []docFieldInfo
+	RelateFieldsMap  map[string]docFieldInfo
+	RelateFieldsList []docFieldInfo
+	InlineMap        int
+	Zero             reflect.Value
 }
 
 type docFieldInfo struct {
-	Key       string
-	Num       int
-	OmitEmpty bool
-	MinSize   bool
-	Relate    string
-	Inline    []int
+	Key        string
+	Num        int
+	OmitEmpty  bool
+	MinSize    bool
+	Relate     string
+	RelateType reflect.Type
+	RelateZero reflect.Value
+	Foreignkey string
+	Inline     []int
 }
 
 var structMap = make(map[reflect.Type]*docStructInfo)
@@ -78,6 +146,8 @@ func getDocumentStructInfo(st reflect.Type) (*docStructInfo, error) {
 	n := st.NumField()
 	inlineMap := -1
 	fieldsMap := make(map[string]docFieldInfo)
+	relateFieldsMap := make(map[string]docFieldInfo)
+	relateFieldsList := make([]docFieldInfo, 0, 1)
 	fieldsList := make([]docFieldInfo, 0, n)
 	for i := 0; i != n; i++ {
 		field := st.Field(i)
@@ -91,31 +161,48 @@ func getDocumentStructInfo(st reflect.Type) (*docStructInfo, error) {
 		}
 
 		tag := field.Tag.Get("monger")
-
-		if tag == "-" {
+		bsonTag := field.Tag.Get("bson")
+		if tag == "-" || bsonTag == "-" {
 			continue
 		}
 
-		tags := parseFieldTag(tag)
+		var documenter Documenter
+		doct := reflect.TypeOf(&documenter).Elem()
+		// guess relationship
+		// if field.Type.Implements()
+		if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Slice {
+			info.Relate = HasMany
+			info.RelateType = field.Type.Elem()
+			// info.RelateZero = reflect.New(info.RelateType)
+		} else if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Implements(doct) {
+			info.Relate = HasOne
+			info.RelateType = field.Type.Elem()
+			// info.RelateZero = reflect.New(info.RelateType)
+		} else if field.Type.Implements(doct) {
+			info.Relate = HasOne
+			info.RelateType = field.Type
+		}
+
+		if info.RelateType != nil {
+			info.RelateZero = reflect.New(info.RelateType)
+		}
+		tags := parseFieldTag(tag, bsonTag)
 		inline := false
 		for k, v := range tags {
 			switch k {
 			case "hasOne":
 				info.Relate = HasOne
-				break
 			case "hasMany":
 				info.Relate = HasMany
-				break
 			case "belongTo":
 				info.Relate = BelongTo
-				break
 			case "inline":
 				inline = true
 				// info.Inline = true
-				break
 			case "column":
 				info.Key = v
-				break
+			case "foreignkey":
+				info.Foreignkey = v
 			default:
 				break
 			}
@@ -164,15 +251,31 @@ func getDocumentStructInfo(st reflect.Type) (*docStructInfo, error) {
 			return nil, errors.New(msg)
 		}
 
+		if _, found = relateFieldsMap[info.Key]; found {
+			msg := "Duplicated Relate key '" + info.Key + "' in struct " + st.String()
+			return nil, errors.New(msg)
+		}
+
 		fieldsList = append(fieldsList, info)
 		fieldsMap[info.Key] = info
+		if info.Relate != "" {
+			relateFieldsMap[info.Key] = info
+			relateFieldsList = append(relateFieldsList, info)
+		}
 	}
 
 	sinfo = &docStructInfo{
-		fieldsMap,
-		fieldsList,
-		inlineMap,
-		reflect.New(st).Elem(),
+		FieldsMap:        fieldsMap,
+		FieldsList:       fieldsList,
+		RelateFieldsList: relateFieldsList,
+		RelateFieldsMap:  relateFieldsMap,
+		InlineMap:        inlineMap,
+		Zero:             reflect.New(st).Elem(),
+		// FiefieldsList,
+		// relateFieldsMap,
+		// relateFieldsList,
+		// inlineMap,
+		// reflect.New(st).Elem(),
 	}
 
 	structMapMutex.Lock()

@@ -10,7 +10,10 @@ import (
 
  */
 type Model interface {
-	Insert(docs ...interface{}) error
+	UpsertID(id interface{}, data interface{}) (*mgo.ChangeInfo, error)
+	Insert(docs interface{}) error
+	Update(selector interface{}, docs interface{}) error
+	Upsert(selector interface{}, docs interface{}) (*mgo.ChangeInfo, error)
 	Doc(documents interface{})
 	Count(q ...interface{}) int
 	Create(docs interface{})
@@ -68,7 +71,7 @@ func (m *model) Create(docs interface{}) {
 }
 
 func (m *model) Doc(documents interface{}) {
-	initDocuments(documents, m.collection, m.connection, false)
+	initDocuments(documents, m.collection, m.connection)
 }
 
 // func (m *model) Doc(doc Document)
@@ -137,12 +140,75 @@ func (m *model) dbCollection() (*mgo.Collection, func()) {
 	return collection, closeFunc
 }
 
-func (m *model) Insert(docs ...interface{}) error {
+func (m *model) Insert(docs interface{}) error {
+	collection, close := m.dbCollection()
+
+	defer close()
+	initDocumentData(docs, true)
+	return collection.Insert(docs)
+}
+
+// func (m *model) getCanUpdateDoc(docs interface{}) interface{} {
+// 	docst := reflect.TypeOf(docs)
+// 	docsv := reflect.ValueOf(docs)
+// 	if docst.Kind() == reflect.Ptr && docst.Elem().Kind() == reflect.Slice {
+// 		panic("[Monger] Can't update a slice")
+// 	}
+// 	var documenter Documenter
+// 	t := docst
+// 	if docst.Kind() == reflect.Ptr {
+// 		t = docst.Elem()
+// 	}
+
+// 	if docst.Implements(reflect.TypeOf(&documenter)) {
+// 		bm := bson.M{}
+// 		structInfo, err := getDocumentStructInfo(reflect.TypeOf(docs))
+
+// 		for _, info := range structInfo.FieldsList {
+// 			var val reflect.Value
+
+// 			if info.Inline == nil {
+// 				val = docsv.Field(info.Num)
+// 			} else {
+// 				val = docsv.FieldByIndex(info.Inline)
+// 			}
+
+// 		}
+// 		// n := docsv.NumField()
+// 		// for i := 0; i < n; i++ {
+// 		// 	field := docsv.Field(i)
+
+// 		// }
+// 	} else {
+// 		return docs
+// 	}
+// }
+
+func (m *model) Update(selector interface{}, docs interface{}) error {
 	collection, close := m.dbCollection()
 
 	defer close()
 
-	return collection.Insert(docs...)
+	initDocumentData(docs, false)
+	return collection.Update(selector, docs)
+}
+
+func (m *model) Upsert(selector interface{}, docs interface{}) (*mgo.ChangeInfo, error) {
+	collection, close := m.dbCollection()
+
+	defer close()
+
+	initDocumentData(docs, false)
+	return collection.Upsert(selector, docs)
+}
+
+func (m *model) UpsertID(id interface{}, data interface{}) (*mgo.ChangeInfo, error) {
+	collection, close := m.dbCollection()
+
+	defer close()
+
+	initDocumentData(data, false)
+	return collection.UpsertId(id, data)
 }
 
 // func (m *model) FindByIDAndDelete(id bson.ObjectId) Query {

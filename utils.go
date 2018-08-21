@@ -109,6 +109,62 @@ func parseFieldTag(tags ...string) map[string]string {
 	return tagMap
 }
 
+func parseTagConfig(tags reflect.StructTag) map[string]string {
+	conf := map[string]string{}
+	for index, str := range []string{tags.Get("bson"), tags.Get("monger")} {
+		// bson
+		if index == 0 {
+			tags := strings.Split(str, ",")
+
+			for _, tag := range tags {
+				// if t == "" {
+				// 	continue
+				// }
+				switch tag {
+				case "inline":
+					conf["INLINE"] = "true"
+				case "omitempty":
+					conf["OMITEMPTY"] = "true"
+				default:
+					conf["COLUMN"] = tag
+				}
+			}
+
+			continue
+		}
+		tags := strings.Split(str, ",")
+		for _, value := range tags {
+			v := strings.Split(value, "=")
+			k := strings.TrimSpace(strings.ToUpper(v[0]))
+			if k == "COLUMN" {
+				continue
+			}
+			if len(v) >= 2 {
+				conf[k] = strings.Join(v[1:], "=")
+			} else {
+				conf[k] = k
+			}
+		}
+	}
+
+	return conf
+}
+
+func buildPopulateTree(populate []string) map[string]interface{} {
+	tree := make(map[string]interface{})
+	for _, popStr := range populate {
+		pop := strings.Split(popStr, ".")
+		k := strings.TrimSpace(strings.ToUpper(pop[0]))
+		if len(pop) >= 2 {
+			tree[k] = buildPopulateTree([]string{strings.Join(pop[1:], ".")})
+		} else {
+			tree[k] = k
+		}
+	}
+
+	return tree
+}
+
 type docStructInfo struct {
 	FieldsMap        map[string]docFieldInfo
 	FieldsList       []docFieldInfo
@@ -171,8 +227,15 @@ func getDocumentStructInfo(st reflect.Type) (*docStructInfo, error) {
 		// guess relationship
 		// if field.Type.Implements()
 		if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Kind() == reflect.Slice {
-			info.Relate = HasMany
-			info.RelateType = field.Type.Elem()
+			elec := field.Type.Elem().Elem()
+			if elec.Kind() == reflect.Ptr {
+				elec = elec.Elem()
+			}
+
+			if elec.Implements(doct) {
+				info.Relate = HasMany
+				info.RelateType = field.Type.Elem()
+			}
 			// info.RelateZero = reflect.New(info.RelateType)
 		} else if field.Type.Kind() == reflect.Ptr && field.Type.Elem().Implements(doct) {
 			info.Relate = HasOne

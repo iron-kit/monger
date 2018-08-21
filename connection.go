@@ -3,7 +3,6 @@ package monger
 import (
 	"fmt"
 	"gopkg.in/mgo.v2"
-	"reflect"
 	"strings"
 	"time"
 )
@@ -93,32 +92,15 @@ func (conn *connection) getModel(name string) Model {
 }
 
 func (conn *connection) registerAndGetModel(document Documenter) Model {
-	if document == nil {
-		panic("[monger] document can not be nil")
-	}
-
-	collectionName := document.CollectionName()
-	reflectType := reflect.TypeOf(document)
-	typeName := strings.ToLower(reflectType.Elem().Name())
-
-	if collectionName == "" {
-		collectionName = typeName
-	}
-
+	typeName := getDocumentTypeName(document)
 	if _, ok := conn.modelStore[typeName]; !ok {
-		collection := conn.Session.DB("").C(collectionName)
-		mdl := &model{
-			collection,
-			conn,
-		}
-
+		mdl := newModel(conn, document)
 		conn.modelStore[typeName] = mdl
 		fmt.Printf("[monger] Type '%v' has registered \r\n", typeName)
-
 		return mdl
 	}
 
-	fmt.Printf("[monger] Tried to register type '%v' twice \r\n", typeName)
+	fmt.Printf("Tried to register type '%v' twice \r\n", typeName)
 	return conn.modelStore[typeName]
 }
 
@@ -129,7 +111,6 @@ func (conn *connection) M(args interface{}) Model {
 
 	if doc, ok := args.(Documenter); ok {
 		return conn.registerAndGetModel(doc)
-		// return conn.registerSchemaAndGetModel(schema)
 	}
 
 	return nil

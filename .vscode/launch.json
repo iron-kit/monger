@@ -13,7 +13,7 @@
       "remotePath": "",
       "port": 2345,
       "host": "127.0.0.1",
-      "program": "${workspaceFolder}/test/main.go",
+      "program": "${workspaceFolder}/examples/main.go",
       "env": {},
       "args": [],
       "showLog": true

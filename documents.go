@@ -3,21 +3,20 @@ package monger
 import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"log"
 	"reflect"
 	"strings"
-	// "reflect"
-	// "strings"
 	"time"
 )
 
 type defaultCreateHooker interface {
-	defaultBeforeCreate() error
-	defaultAfterCreate(doc Documenter) error
+	defaultBeforeCreate(document Documenter, mdl *model) error
+	defaultAfterCreate(doc Documenter, mdl *model) error
 }
 
 type defaultUpdateHooker interface {
-	defaultBeforeUpdate() error
-	defaultAfterUpdate(doc Documenter) error
+	defaultBeforeUpdate(document Documenter, mdl *model) error
+	defaultAfterUpdate(doc Documenter, mdl *model) error
 }
 
 type CollectionNameGetter interface {
@@ -29,10 +28,6 @@ type DocumentHooker interface {
 }
 
 type Documenter interface {
-	// DocumentManager
-	// DocumentHooker
-	// bson.Getter
-	// bson.Setter
 	GetID() bson.ObjectId
 	SetID(bson.ObjectId)
 
@@ -45,6 +40,9 @@ type Documenter interface {
 	SetDeleted(bool)
 	IsDeleted() bool
 
+	GetStringID() string
+
+	setValue(value Documenter)
 	// defaultBeforeCreate() error
 	// defaultBeforeUpdate() error
 	defaultCreateHooker
@@ -70,6 +68,7 @@ type documentManager struct {
 
 type Document struct {
 	value     Documenter
+	mdl       *model
 	ID        bson.ObjectId `json:"id" bson:"_id,omitempty"`
 	CreatedAt time.Time     `json:"createdAt" bson:"createdAt,omitempty"`
 	UpdatedAt time.Time     `json:"updatedAt" bson:"updatedAt,omitempty"`
@@ -83,25 +82,72 @@ func getDocumentTypeName(doc Documenter) string {
 	return typeName
 }
 
-func (doc *Document) defaultBeforeCreate() error {
+func (doc *Document) defaultBeforeCreate(document Documenter, mdl *model) error {
 	now := time.Now()
 	doc.SetID(bson.NewObjectId())
 	doc.SetUpdatedAt(now)
 	doc.SetCreatedAt(now)
+	if doc.value == nil {
+		doc.value = document
+	}
+
+	if doc.mdl == nil {
+		doc.mdl = mdl
+	}
+
+	// docStruct := mdl.GetDocumentStruct()
+	// for _, f := range docStruct.StructFields {
+	// 	fmt.Println(f.Name)
+	// }
+	// fmt.Println(structs.Map(doc.value))
+	// docv := reflect.ValueOf(doc.value)
+	// // for {
+
+	// // }
+	// if docv.Type().Kind() == reflect.Ptr {
+	// 	docv = docv.Elem()
+	// }
+
+	// for _, relationField := range docStruct.RelationFields {
+	// 	// docv.relationField.Name
+	// 	f := docv.FieldByName(relationField.Name)
+	// 	if f.CanSet() {
+	// 		f.Set(reflect.ValueOf(nil))
+	// 		// f.SetPointer(nil)
+	// 	}
+	// }
+	// fmt.Println(doc.value)
 	return nil
 }
 
-func (doc *Document) defaultAfterCreate(document Documenter) error {
-	doc.value = document
+func (doc *Document) defaultAfterCreate(document Documenter, mdl *model) error {
+	if doc.value == nil {
+		doc.value = document
+	}
+	if doc.mdl == nil {
+		doc.mdl = mdl
+	}
 	return nil
 }
 
-func (doc *Document) defaultBeforeUpdate() error {
+func (doc *Document) defaultBeforeUpdate(document Documenter, mdl *model) error {
+	doc.SetUpdatedAt(time.Now())
+	if doc.value == nil {
+		doc.value = document
+	}
+	if doc.mdl == nil {
+		doc.mdl = mdl
+	}
 	return nil
 }
 
-func (doc *Document) defaultAfterUpdate(document Documenter) error {
-	doc.value = document
+func (doc *Document) defaultAfterUpdate(document Documenter, mdl *model) error {
+	if doc.value == nil {
+		doc.value = document
+	}
+	if doc.mdl == nil {
+		doc.mdl = mdl
+	}
 	return nil
 }
 
@@ -139,4 +185,62 @@ func (doc *Document) IsDeleted() bool {
 
 func (doc *Document) BeforeSave() {
 	return
+}
+
+func (doc *Document) setValue(val Documenter) {
+	doc.value = val
+}
+
+func (doc *Document) GetValue() Documenter {
+	return doc.value
+}
+
+func (doc *Document) GetStringID() string {
+
+	return doc.ID.Hex()
+}
+
+func (doc *Document) GetBSON() (interface{}, error) {
+	mapData := make(map[string]interface{})
+
+	if doc.mdl == nil || doc.value == nil {
+		return mapData, &NotInitDocumentError{NewError("You neet init this document before to bson")}
+	}
+	// fmt.Println(doc.value)
+	docStruct := doc.mdl.GetDocumentStruct()
+	docv := reflect.ValueOf(doc.value)
+	if docv.Type().Kind() == reflect.Ptr {
+		docv = docv.Elem()
+	}
+
+	// fmt.Println("doc")
+	// fmt.Println(docv)
+
+	for _, field := range docStruct.StructFields {
+		if field.Relationship != nil {
+			// 忽略关联关系字段
+			continue
+		}
+
+		var val reflect.Value
+		if field.IsInline {
+			val = docv.FieldByIndex(field.InlineIndex)
+			// mapData[field.ColumnName] = val.Interface()
+		} else {
+			val = docv.Field(field.Index)
+			// mapData[field.ColumnName] = val.Interface()
+		}
+		// valt := val.Type()
+
+		if field.TagMap["OMITEMPTY"] == "true" {
+			if isZero(val) {
+				continue
+			}
+		}
+
+		mapData[field.ColumnName] = val.Interface()
+
+	}
+	log.Println("monger GetBSON:", mapData)
+	return mapData, nil
 }

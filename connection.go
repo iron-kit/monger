@@ -3,6 +3,7 @@ package monger
 import (
 	"fmt"
 	"gopkg.in/mgo.v2"
+	"log"
 	"strings"
 	"time"
 )
@@ -96,11 +97,11 @@ func (conn *connection) registerAndGetModel(document Documenter) Model {
 	if _, ok := conn.modelStore[typeName]; !ok {
 		mdl := newModel(conn, document)
 		conn.modelStore[typeName] = mdl
-		fmt.Printf("[monger] Type '%v' has registered \r\n", typeName)
+		log.Printf("[monger] Type '%v' has registered \r\n", typeName)
 		return mdl
 	}
 
-	fmt.Printf("Tried to register type '%v' twice \r\n", typeName)
+	log.Printf("Tried to register type '%v' twice \r\n", typeName)
 	return conn.modelStore[typeName]
 }
 

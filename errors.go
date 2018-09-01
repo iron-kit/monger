@@ -25,6 +25,10 @@ type InvalidIdError struct {
 	*MongerQueryError
 }
 
+type NotInitDocumentError struct {
+	*MongerQueryError
+}
+
 func NewError(msg string) *MongerQueryError {
 	return &MongerQueryError{msg}
 }

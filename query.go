@@ -1,6 +1,7 @@
 package monger
 
 import (
+	"fmt"
 	"gopkg.in/mgo.v2/bson"
 	"strings"
 	//"fmt"
@@ -25,6 +26,9 @@ type Query interface {
 	Populate(fields ...string) Query
 	Exec(result interface{}) error
 	Create(document interface{}) error
+	Update(selector interface{}, docs interface{}) error
+	Upsert(selector interface{}, docs interface{}) (*mgo.ChangeInfo, error)
+	UpsertID(id interface{}, data interface{}) (*mgo.ChangeInfo, error)
 	// Delete() error
 	Remove() error
 	RemoveAll() (info *mgo.ChangeInfo, err error)
@@ -129,42 +133,64 @@ func (q *query) buildQuery(query *mgo.Query) {
 
 }
 
-func (q *query) one(document interface{}) error {
+func (q *query) one(document interface{}) (err error) {
 	q.multiple = false
-	// return q.Exec(document)
+
 	if len(q.populate) > 0 {
-		// use populate mode
-		return q.execPopulateQuery(document)
+
+		err = q.execPopulateQuery(document)
+	} else {
+		query := q.collection.Find(q.query)
+		q.buildQuery(query)
+
+		err = query.One(document)
 	}
-	query := q.collection.Find(q.query)
-	q.buildQuery(query)
-	return query.One(document)
+	return
 }
 
-func (q *query) all(documents interface{}) error {
+func (q *query) all(documents interface{}) (err error) {
 	q.multiple = true
+
 	if len(q.populate) > 0 {
 		// use populate mode
-		return q.execPopulateQuery(documents)
+		err = q.execPopulateQuery(documents)
+	} else {
+		query := q.collection.Find(q.query)
+		q.buildQuery(query)
+		err = query.All(documents)
 	}
-	query := q.collection.Find(q.query)
-	q.buildQuery(query)
-	return query.All(documents)
+	// docst := reflect.TypeOf(documents)
+	// // docsv := reflect.ValueOf(documents)
+	// if docst.Kind() == reflect.Ptr && docst.Elem().Kind() == reflect.Slice {
+	// 	if isImplementsDocumenter(docst.Elem().Elem()) {
+	// 		if docs, ok := documents.(*[]Documenter); ok {
+	// 			for _, doc := range *docs {
+	// 				doc.setValue(doc)
+	// 			}
+	// 		}
+	// 	}
+	// } else if docst.Kind() == reflect.Slice {
+	// 	if isImplementsDocumenter(docst.Elem()) {
+	// 		if docs, ok := documents.([]Documenter); ok {
+	// 			for _, doc := range docs {
+	// 				doc.setValue(doc)
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+	return
 }
 
 func (q *query) getPopulatePipeline() []bson.M {
 	documentStruct := q.mdl.GetDocumentStruct()
 	pipeline := []bson.M{}
-
-	// var populateTree map[string]interface{}
-	// // populate tree
-	// if len(populateTrees) >= 1 {
-	// 	populateTree = populateTrees[0]
-	// } else {
 	populateTree := buildPopulateTree(q.populate)
-	// }
+
+	fmt.Println(len(documentStruct.StructFields))
 
 	for _, field := range documentStruct.StructFields {
+		fmt.Println(field.Name)
 		if field.Relationship != nil {
 			rs := field.Relationship
 			if _, found := populateTree[strings.ToUpper(field.Name)]; !found {
@@ -257,6 +283,10 @@ func (q *query) Exec(result interface{}) error {
 		if !multiple {
 			panic("Want a document but give a slice")
 		}
+	} else if resType.Kind() == reflect.Slice {
+		if !multiple {
+			panic("Want a document but give a slice")
+		}
 	} else if _, ok := result.(Documenter); ok {
 		if multiple {
 			panic("Want a slice but give a document")
@@ -266,11 +296,55 @@ func (q *query) Exec(result interface{}) error {
 	}
 
 	var err error
-
 	if multiple {
-		err = q.all(result)
+		resMaps := make([]map[string]interface{}, 0, 1)
+		err = q.all(&resMaps)
+
+		resultv := reflect.ValueOf(result)
+		if resultv.Kind() != reflect.Ptr || resultv.Elem().Kind() != reflect.Slice {
+			panic("result argument must be a slice address")
+		}
+		slicev := resultv.Elem()
+		slicev = slicev.Slice(0, slicev.Cap())
+		elemt := slicev.Type().Elem()
+		i := 0
+
+		for _, resMap := range resMaps {
+			// dm := make(map[string]interface{})
+			elemp := reflect.New(elemt)
+			for k, v := range resMap {
+				if strings.HasSuffix(k, "@ARR") {
+					fieldNames := strings.Split(k, "@")
+					if arr, ok := v.([]interface{}); ok {
+						if len(arr) > 0 {
+							resMap[fieldNames[0]] = arr[0]
+						}
+					}
+				}
+			}
+			resByte, _ := bson.Marshal(resMap)
+			err = bson.Unmarshal(resByte, elemp.Interface())
+			slicev = reflect.Append(slicev, elemp.Elem())
+			slicev = slicev.Slice(0, slicev.Cap())
+			i++
+		}
+		resultv.Elem().Set(slicev.Slice(0, i))
 	} else {
-		err = q.one(result)
+		resMap := make(map[string]interface{})
+		err = q.one(&resMap)
+
+		for k, v := range resMap {
+			if strings.HasSuffix(k, "@ARR") {
+				fieldNames := strings.Split(k, "@")
+				if arr, ok := v.([]interface{}); ok {
+					if len(arr) > 0 {
+						resMap[fieldNames[0]] = arr[0]
+					}
+				}
+			}
+		}
+		resByte, _ := bson.Marshal(resMap)
+		err = bson.Unmarshal(resByte, result)
 	}
 
 	if err == mgo.ErrNotFound {
@@ -284,7 +358,13 @@ func (q *query) Exec(result interface{}) error {
 	return nil
 }
 
+func (q *query) insert(args ...interface{}) error {
+	// TODO insert relation data
+	return q.collection.Insert(args...)
+}
+
 func (q *query) Create(document interface{}) error {
+	// fmt.Println(document)
 	doct := reflect.TypeOf(document)
 	if doct.Kind() == reflect.Slice {
 		elemType := doct.Elem()
@@ -299,15 +379,15 @@ func (q *query) Create(document interface{}) error {
 		// before create hooker
 		if isDocumenter {
 			for _, v := range documents {
-				if hooker, ok := v.(defaultCreateHooker); ok {
-					if err := hooker.defaultBeforeCreate(); err != nil {
+				if doc, ok := v.(Documenter); ok {
+					if err := doc.defaultBeforeCreate(doc, q.mdl); err != nil {
 						return err
 					}
 				}
 			}
 		}
 
-		err := q.collection.Insert(documents...)
+		err := q.insert(documents...)
 		if err != nil {
 			return err
 		}
@@ -316,7 +396,7 @@ func (q *query) Create(document interface{}) error {
 		if isDocumenter {
 			for _, v := range documents {
 				if doc, ok := v.(Documenter); ok {
-					if err := doc.defaultAfterCreate(doc); err != nil {
+					if err := doc.defaultAfterCreate(doc, q.mdl); err != nil {
 						return err
 					}
 				}
@@ -325,22 +405,82 @@ func (q *query) Create(document interface{}) error {
 	}
 
 	// before create hooker
-	if hooker, ok := document.(defaultCreateHooker); ok {
-		if err := hooker.defaultBeforeCreate(); err != nil {
+	if doc, ok := document.(Documenter); ok {
+		if err := doc.defaultBeforeCreate(doc, q.mdl); err != nil {
 			return err
 		}
 	}
-	err := q.collection.Insert(document)
+	err := q.insert(document)
 	if err != nil {
 		return err
 	}
 
 	// after create hooker
 	if doc, ok := document.(Documenter); ok {
-		if err := doc.defaultAfterCreate(doc); err != nil {
+		if err := doc.defaultAfterCreate(doc, q.mdl); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// 处理 Update/Upsert/UpsertID 的包装器
+func (q *query) execUpdate(data interface{}, f func()) {
+	if doc, ok := data.(Documenter); ok {
+		doc.defaultBeforeUpdate(doc, q.mdl)
+		defer doc.defaultAfterUpdate(doc, q.mdl)
+		f()
+		return
+	}
+
+	if m, ok := data.(map[string]interface{}); ok {
+		for _, v := range m {
+			if doc, ok := v.(Documenter); ok {
+				doc.defaultBeforeUpdate(doc, q.mdl)
+				defer doc.defaultAfterUpdate(doc, q.mdl)
+			}
+		}
+		f()
+		return
+	}
+
+	if m, ok := data.(bson.M); ok {
+		for _, v := range m {
+			if doc, ok := v.(Documenter); ok {
+				doc.defaultBeforeUpdate(doc, q.mdl)
+				defer doc.defaultAfterUpdate(doc, q.mdl)
+			}
+		}
+		f()
+		return
+	}
+
+	f()
+	return
+}
+
+func (q *query) Update(selector interface{}, docs interface{}) (err error) {
+
+	q.execUpdate(docs, func() {
+		err = q.collection.Update(selector, docs)
+	})
+
+	return
+}
+
+func (q *query) Upsert(selector interface{}, docs interface{}) (info *mgo.ChangeInfo, err error) {
+	q.execUpdate(docs, func() {
+		info, err = q.collection.Upsert(selector, docs)
+	})
+
+	return
+}
+
+func (q *query) UpsertID(id interface{}, docs interface{}) (info *mgo.ChangeInfo, err error) {
+	q.execUpdate(docs, func() {
+		info, err = q.collection.UpsertId(id, docs)
+	})
+
+	return
 }

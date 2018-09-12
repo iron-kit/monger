@@ -83,6 +83,17 @@ func (q *query) Skip(skip int) Query {
 }
 
 func (q *query) Count() (n int, err error) {
+	if len(q.populate) > 0 {
+		q.buildPipeQuery()
+		res := []map[string]interface{}{}
+		err := q.collection.Pipe(q.pipeline).All(&res)
+		if err != nil {
+			return 0, err
+		}
+
+		return len(res), nil
+	}
+
 	return q.collection.Find(q.query).Count()
 }
 
@@ -204,9 +215,16 @@ func (q *query) getPopulatePipeline() []bson.M {
 						"from":         rs.CollectionName,
 						"localField":   rs.LocalFieldKey,
 						"foreignField": rs.ForeignFieldKey,
-						"as":           field.ColumnName + "@ARR",
+						// "as":           field.ColumnName + "@ARR",
+						"as": field.ColumnName,
+					},
+				}, bson.M{
+					"$unwind": bson.M{
+						"path":                       "$" + field.ColumnName,
+						"preserveNullAndEmptyArrays": true,
 					},
 				})
+
 			case HasMany:
 				pipeline = append(pipeline, bson.M{
 					"$lookup": bson.M{
@@ -222,7 +240,13 @@ func (q *query) getPopulatePipeline() []bson.M {
 						"from":         rs.CollectionName,
 						"localField":   rs.LocalFieldKey,
 						"foreignField": rs.ForeignFieldKey,
-						"as":           field.ColumnName + "@ARR",
+						// "as":           field.ColumnName + "@ARR",
+						"as": field.ColumnName,
+					},
+				}, bson.M{
+					"$unwind": bson.M{
+						"path":                       "$" + field.ColumnName,
+						"preserveNullAndEmptyArrays": true,
 					},
 				})
 			// TODO BelongsTo
@@ -254,7 +278,8 @@ func (q *query) buildPipeQuery() {
 	if q.query != nil {
 		pipeline = append(pipeline, bson.M{"$match": q.query})
 	}
-
+	// log.Log(pipeline, "pipeline ...")
+	// fmt.Println("pipeline: ", pipeline)
 	q.pipeline = pipeline
 }
 
@@ -426,11 +451,11 @@ func (q *query) Create(document interface{}) error {
 }
 
 // 处理 Update/Upsert/UpsertID 的包装器
-func (q *query) execUpdate(data interface{}, f func()) {
+func (q *query) execUpdate(data interface{}, f func(d interface{})) {
 	if doc, ok := data.(Documenter); ok {
 		doc.defaultBeforeUpdate(doc, q.mdl)
 		defer doc.defaultAfterUpdate(doc, q.mdl)
-		f()
+		f(bson.M{"$set": doc})
 		return
 	}
 
@@ -441,7 +466,7 @@ func (q *query) execUpdate(data interface{}, f func()) {
 				defer doc.defaultAfterUpdate(doc, q.mdl)
 			}
 		}
-		f()
+		f(data)
 		return
 	}
 
@@ -452,34 +477,34 @@ func (q *query) execUpdate(data interface{}, f func()) {
 				defer doc.defaultAfterUpdate(doc, q.mdl)
 			}
 		}
-		f()
+		f(data)
 		return
 	}
 
-	f()
+	f(data)
 	return
 }
 
 func (q *query) Update(selector interface{}, docs interface{}) (err error) {
 
-	q.execUpdate(docs, func() {
-		err = q.collection.Update(selector, docs)
+	q.execUpdate(docs, func(d interface{}) {
+		err = q.collection.Update(selector, d)
 	})
 
 	return
 }
 
 func (q *query) Upsert(selector interface{}, docs interface{}) (info *mgo.ChangeInfo, err error) {
-	q.execUpdate(docs, func() {
-		info, err = q.collection.Upsert(selector, docs)
+	q.execUpdate(docs, func(d interface{}) {
+		info, err = q.collection.Upsert(selector, d)
 	})
 
 	return
 }
 
 func (q *query) UpsertID(id interface{}, docs interface{}) (info *mgo.ChangeInfo, err error) {
-	q.execUpdate(docs, func() {
-		info, err = q.collection.UpsertId(id, docs)
+	q.execUpdate(docs, func(d interface{}) {
+		info, err = q.collection.UpsertId(id, d)
 	})
 
 	return

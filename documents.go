@@ -3,7 +3,6 @@ package monger
 import (
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
-	"log"
 	"reflect"
 	"strings"
 	"time"
@@ -41,6 +40,8 @@ type Documenter interface {
 	IsDeleted() bool
 
 	GetStringID() string
+
+	IsEmpty() bool
 
 	setValue(value Documenter)
 	// defaultBeforeCreate() error
@@ -187,6 +188,14 @@ func (doc *Document) BeforeSave() {
 	return
 }
 
+func (doc *Document) IsEmpty() bool {
+	if len(doc.GetID()) > 0 {
+		return false
+	}
+
+	return true
+}
+
 func (doc *Document) setValue(val Documenter) {
 	doc.value = val
 }
@@ -241,6 +250,6 @@ func (doc *Document) GetBSON() (interface{}, error) {
 		mapData[field.ColumnName] = val.Interface()
 
 	}
-	log.Println("monger GetBSON:", mapData)
+	// log.Println("monger GetBSON:", mapData)
 	return mapData, nil
 }

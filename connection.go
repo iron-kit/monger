@@ -2,10 +2,11 @@ package monger
 
 import (
 	"fmt"
-	"gopkg.in/mgo.v2"
 	"log"
 	"strings"
 	"time"
+
+	"gopkg.in/mgo.v2"
 )
 
 /*
@@ -13,12 +14,12 @@ Connection is the connect manager of mgo.v2 deiver
 */
 type Connection interface {
 	M(interface{}) Model
-	BatchRegister(...Documenter)
+	BatchRegister(...Schemer)
 	Open() error
 	Close()
 	CloneSession() *mgo.Session
 	getModel(name string) Model
-	registerAndGetModel(document Documenter) Model
+	registerAndGetModel(document Schemer) Model
 	GetConfig() *Config
 }
 
@@ -92,8 +93,8 @@ func (conn *connection) getModel(name string) Model {
 	panic(fmt.Sprintf("[monger] Schema '%v' is not registered ", nameLower))
 }
 
-func (conn *connection) registerAndGetModel(document Documenter) Model {
-	typeName := getDocumentTypeName(document)
+func (conn *connection) registerAndGetModel(document Schemer) Model {
+	typeName := getSchemaTypeName(document)
 	if _, ok := conn.modelStore[typeName]; !ok {
 		mdl := newModel(conn, document)
 		conn.modelStore[typeName] = mdl
@@ -110,14 +111,14 @@ func (conn *connection) M(args interface{}) Model {
 		return conn.getModel(name)
 	}
 
-	if doc, ok := args.(Documenter); ok {
+	if doc, ok := args.(Schemer); ok {
 		return conn.registerAndGetModel(doc)
 	}
 
 	return nil
 }
 
-func (conn *connection) BatchRegister(docs ...Documenter) {
+func (conn *connection) BatchRegister(docs ...Schemer) {
 	for _, v := range docs {
 		conn.registerAndGetModel(v)
 	}

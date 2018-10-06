@@ -29,6 +29,10 @@ type NotInitDocumentError struct {
 	*MongerQueryError
 }
 
+type InvalidParamsError struct {
+	*MongerQueryError
+}
+
 func NewError(msg string) *MongerQueryError {
 	return &MongerQueryError{msg}
 }

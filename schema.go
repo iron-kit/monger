@@ -18,6 +18,7 @@ type Schemer interface {
 	beforeUpdate() error
 	afterUpdate() error
 	IsUpdated() bool
+	IsEmpty() bool
 }
 
 type Schema struct {
@@ -73,4 +74,12 @@ func (s *Schema) afterUpdate() error {
 
 func (s *Schema) IsUpdated() bool {
 	return s.isUpdated
+}
+
+func (s *Schema) IsEmpty() bool {
+	if len(s.ID) == 0 {
+		return true
+	}
+
+	return false
 }

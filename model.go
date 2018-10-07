@@ -9,6 +9,7 @@ import (
 Model is mongodb actoin model
 */
 type Model interface {
+	OffSoftDeletes() Query
 	UpsertID(id bson.ObjectId, data interface{}) (*mgo.ChangeInfo, error)
 	Upsert(condition bson.M, data interface{}) (*mgo.ChangeInfo, error)
 	Update(condition bson.M, data interface{}) error
@@ -20,6 +21,11 @@ type Model interface {
 	Where(...bson.M) Query
 	Select(...bson.M) Query
 	Aggregate([]bson.M) *mgo.Pipe
+	Delete(bson.M) error
+	ForceDelete(bson.M) error
+	DeleteAll(bson.M) error
+	ForceDeleteAll(bson.M) error
+	Restore(bson.M) error
 	getCollectionName() string
 	getSchemaStruct() *SchemaStruct
 }
@@ -32,6 +38,30 @@ type model struct {
 	collectionName string
 }
 
+func (m *model) Restore(condition bson.M) error {
+	return m.query().Where(condition).Restore()
+}
+
+func (m *model) Delete(condition bson.M) error {
+	return m.query().Where(condition).Delete()
+}
+
+func (m *model) ForceDelete(condition bson.M) error {
+	return m.query().Where(condition).ForceDelete()
+}
+
+func (m *model) DeleteAll(condition bson.M) error {
+	_, err := m.query().Where(condition).DeleteAll()
+
+	return err
+}
+
+func (m *model) ForceDeleteAll(condition bson.M) error {
+	_, err := m.query().Where(condition).ForceDeleteAll()
+
+	return err
+}
+
 func (m *model) query() Query {
 	return newQuery(m.collection, m.getSchemaStruct())
 }
@@ -41,6 +71,10 @@ func (m *model) getSchemaStruct() *SchemaStruct {
 		m.schemaStruct = getStructInfoOfSchema(m.schema, m.connection)
 	}
 	return m.schemaStruct
+}
+
+func (m *model) OffSoftDeletes() Query {
+	return m.query().OffSoftDeletes()
 }
 
 func (m *model) UpsertID(id bson.ObjectId, data interface{}) (*mgo.ChangeInfo, error) {

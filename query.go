@@ -27,6 +27,8 @@ For Example:
 */
 type Query interface {
 	// Unscoped() Query
+	OnlyTrashed() Query
+	OffSoftDeletes() Query
 	Collection() *mgo.Collection
 	Select(selector bson.M) Query
 	Where(condition bson.M) Query
@@ -39,8 +41,11 @@ type Query interface {
 	Update(condition bson.M, docs interface{}) error
 	Upsert(condition bson.M, docs interface{}) (*mgo.ChangeInfo, error)
 	UpsertID(id interface{}, docs interface{}) (*mgo.ChangeInfo, error)
-	Remove() error
-	RemoveAll() (*mgo.ChangeInfo, error)
+	Restore() error
+	Delete() error
+	DeleteAll() (*mgo.ChangeInfo, error)
+	ForceDelete() error
+	ForceDeleteAll() (*mgo.ChangeInfo, error)
 	Skip(skip int) Query
 	Limit(limit int) Query
 	Sort(fields ...string) Query
@@ -48,16 +53,36 @@ type Query interface {
 }
 
 type query struct {
-	collection   *mgo.Collection
-	where        bson.M
-	selector     interface{}
-	populate     []string
-	sort         []string
-	limit        int
-	skip         int
-	pipeline     []bson.M
-	multiple     bool
-	schemaStruct *SchemaStruct
+	withTrashed    bool
+	onlyTrashed    bool
+	offSoftDeletes bool
+	collection     *mgo.Collection
+	where          bson.M
+	selector       interface{}
+	populate       []string
+	sort           []string
+	limit          int
+	skip           int
+	pipeline       []bson.M
+	multiple       bool
+	schemaStruct   *SchemaStruct
+}
+
+func (q *query) OnlyTrashed() Query {
+	q.onlyTrashed = true
+
+	return q
+}
+
+func (q *query) WithTrashed() Query {
+	q.withTrashed = true
+	return q
+}
+
+func (q *query) OffSoftDeletes() Query {
+	q.offSoftDeletes = true
+
+	return q
 }
 
 func (q *query) Collection() *mgo.Collection {
@@ -96,11 +121,40 @@ func (q *query) Count() int {
 	return c
 }
 
-func (q *query) Remove() error {
+func (q *query) Restore() error {
+	if q.offSoftDeletes {
+		return nil
+	}
+
+	_, err := q.collection.Upsert(q.where, bson.M{"$set": bson.M{
+		"deleted": false,
+	}})
+
+	return err
+}
+
+func (q *query) Delete() error {
+	if !q.offSoftDeletes {
+		return q.collection.Update(q.where, bson.M{"$set": bson.M{"deleted": true}})
+	}
+	return q.ForceDelete()
+}
+
+func (q *query) DeleteAll() (info *mgo.ChangeInfo, err error) {
+	if !q.offSoftDeletes {
+		return q.collection.Upsert(q.where, bson.M{"$set": bson.M{
+			"deleted": true,
+		}})
+	}
+
+	return q.ForceDeleteAll()
+}
+
+func (q *query) ForceDelete() error {
 	return q.collection.Remove(q.where)
 }
 
-func (q *query) RemoveAll() (info *mgo.ChangeInfo, err error) {
+func (q *query) ForceDeleteAll() (*mgo.ChangeInfo, error) {
 	return q.collection.RemoveAll(q.where)
 }
 
@@ -113,6 +167,7 @@ func (q *query) Populate(fields ...string) Query {
 }
 
 func (q *query) Where(condition bson.M) Query {
+
 	// panic("not implemented")
 	if q.where == nil {
 		q.where = make(bson.M)
@@ -120,6 +175,16 @@ func (q *query) Where(condition bson.M) Query {
 
 	for key, val := range condition {
 		q.where[key] = val
+	}
+
+	if !q.offSoftDeletes {
+		if !q.withTrashed {
+			q.where["deleted"] = false
+		}
+
+		if q.onlyTrashed {
+			q.where["deleted"] = true
+		}
 	}
 
 	return q
@@ -144,6 +209,7 @@ func (q *query) Aggregate(pipe []bson.M) *mgo.Pipe {
 }
 
 func (q *query) buildQuery() *mgo.Query {
+
 	query := q.collection.Find(q.where)
 
 	if q.selector != nil {

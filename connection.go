@@ -108,7 +108,7 @@ func (conn *connection) registerAndGetModel(document Schemer) Model {
 
 func (conn *connection) M(args interface{}) Model {
 	if name, ok := args.(string); ok {
-		return conn.getModel(name)
+		return conn.getModel(snakeString(name))
 	}
 
 	if doc, ok := args.(Schemer); ok {

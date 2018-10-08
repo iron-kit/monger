@@ -242,9 +242,10 @@ func getPopulateTree(populate []string) []*PopulateItem {
 	cache := make(map[string]*PopulateItem)
 	for _, p := range populate {
 		k := strings.ToUpper(p)
+		karr := strings.Split(p, ".")
 		if _, ok := cache[k]; !ok {
 			cache[k] = &PopulateItem{
-				Name:     p,
+				Name:     karr[len(karr)-1],
 				Children: make([]*PopulateItem, 0),
 			}
 		}
@@ -295,8 +296,11 @@ func getRelationLookup(populateItems []*PopulateItem, schemaStruct *SchemaStruct
 			}
 
 			if len(item.Children) > 0 && field.RelationshipStruct != nil {
-				pipelines := getRelationLookup(item.Children, field.RelationshipStruct)
-				childPipeline = append(childPipeline, pipelines...)
+				// fmt.Println(item.Children[0], "children")
+				// fmt.Println(field.RelationshipStruct, "struct")
+				pipes := getRelationLookup(item.Children, field.RelationshipStruct)
+				// fmt.Println(pipes, "pipes")
+				childPipeline = append(childPipeline, pipes...)
 			}
 
 			pipeline := bson.M{
@@ -329,6 +333,8 @@ func getRelationLookup(populateItems []*PopulateItem, schemaStruct *SchemaStruct
 		}
 
 	}
+
+	fmt.Println(pipelines)
 	return pipelines
 	// for _, p := range populate {
 

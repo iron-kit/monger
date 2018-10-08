@@ -9,11 +9,18 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type Task struct {
+	Schema   `json:",inline" bson:",inline"`
+	TaskName string
+	Member   *Member `json:"member,omitempty" bson:"member,omitempty" monger:"hasOne,foreignKey=task_id"`
+}
+
 type Member struct {
 	Schema   `json:",inline" bson:",inline"`
-	Username string   `json:"username,omitempty" bson:"username,omitempty"`
-	Password string   `json:"password,omitempty" bson:"password,omitempty"`
-	Profile  *Profile `json:"profile,omitempty" bson:"profile,omitempty" monger:"hasOne,foreignKey=user_id"`
+	Username string        `json:"username,omitempty" bson:"username,omitempty"`
+	TaskID   bson.ObjectId `json:"task_id,omitempty" bson:"task_id,omitempty"`
+	Password string        `json:"password,omitempty" bson:"password,omitempty"`
+	Profile  *Profile      `json:"profile,omitempty" bson:"profile,omitempty" monger:"hasOne,foreignKey=user_id"`
 }
 
 type Profile struct {
@@ -69,6 +76,36 @@ func TestCreateFuncOK(t *testing.T) {
 	assert.NoError(t, err2)
 }
 
+func TestCreateTaskOK(t *testing.T) {
+	connect := conn()
+	TaskModel := connect.M("Task")
+
+	TaskModel.Create(&Task{
+		TaskName: "Task1",
+	})
+}
+
+func TestDeepPopulateOK(t *testing.T) {
+	connect := conn()
+
+	TaskModel := connect.M("Task")
+
+	task := new(Task)
+
+	query := TaskModel.Where(bson.M{
+		"_id": bson.ObjectIdHex("5bbae4c716a44b0f66323541"),
+	}).Populate("Member", "Member.Profile")
+
+	query.FindOne(task)
+
+	fmt.Println(task)
+
+	assert.Equal(t, task.ID.Hex(), "5bbae4c716a44b0f66323541")
+	assert.Equal(t, task.Member.ID.Hex(), "5bb86b3c16a44b4c69e667f9")
+	assert.NotEmpty(t, task.Member.Profile)
+	// assert.Equal(t, task.Member.Profile.ID.Hex(), "")
+}
+
 func TestPopulateFuncOK(t *testing.T) {
 	connect := conn()
 	MemberModel := connect.M("Member")
@@ -98,6 +135,7 @@ func conn() Connection {
 	conn.BatchRegister(
 		new(Member),
 		new(Profile),
+		new(Task),
 	)
 
 	return conn

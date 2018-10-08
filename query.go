@@ -1,12 +1,19 @@
 package monger
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
+
+type PopulateItem struct {
+	Name     string
+	Children []*PopulateItem
+}
 
 /*
 Query is the mongodb query help tools,
@@ -231,62 +238,209 @@ func (q *query) buildQuery() *mgo.Query {
 	return query
 }
 
-func (q *query) getPopulatePipeline() []bson.M {
-	// documentStruct := q.documentStruct
+func getPopulateTree(populate []string) []*PopulateItem {
+	cache := make(map[string]*PopulateItem)
+	for _, p := range populate {
+		k := strings.ToUpper(p)
+		if _, ok := cache[k]; !ok {
+			cache[k] = &PopulateItem{
+				Name:     p,
+				Children: make([]*PopulateItem, 0),
+			}
+		}
 
-	schemaStruct := q.schemaStruct
-	pipeline := make([]bson.M, 0)
+		// strings.Split()
+	}
 
-	for _, field := range schemaStruct.StructFields {
-		if field.Relationship != nil {
-			rs := field.Relationship
-			switch rs.Kind {
-			case HasOne:
-				pipeline = append(pipeline, bson.M{
-					"$lookup": bson.M{
-						"from":         rs.CollectionName,
-						"localField":   rs.LocalFieldKey,
-						"foreignField": rs.ForeignFieldKey,
-						"as":           field.ColumnName,
-					},
-				}, bson.M{
-					"$unwind": bson.M{
-						"path": "$" + field.ColumnName,
-						"preserveNullAndEmptyArrays": true,
-					},
-				})
-			case HasMany:
-				pipeline = append(pipeline, bson.M{
-					"$lookup": bson.M{
-						"from":         rs.CollectionName,
-						"localField":   rs.LocalFieldKey,
-						"foreignField": rs.ForeignFieldKey,
-						"as":           field.ColumnName,
-					},
-				})
-			case BelongTo:
-				pipeline = append(pipeline, bson.M{
-					"$lookup": bson.M{
-						"from":         rs.CollectionName,
-						"localField":   rs.LocalFieldKey,
-						"foreignField": rs.ForeignFieldKey,
-						"as":           field.ColumnName,
-					},
-				}, bson.M{
-					"$unwind": bson.M{
-						"path": "$" + field.ColumnName,
-						"preserveNullAndEmptyArrays": true,
-					},
-				})
-				// TODO
-			case BelongsTo:
-			default:
+	items := make([]*PopulateItem, 0)
+
+	for _, p := range populate {
+		k := strings.ToUpper(p)
+		karr := strings.Split(k, ".")
+
+		if len(karr) == 1 {
+			items = append(items, cache[karr[0]])
+		}
+
+		if len(karr) > 1 {
+			parentK := karr[:len(karr)-1]
+			if i, ok := cache[strings.Join(parentK, ".")]; ok {
+				i.Children = append(i.Children, cache[k])
 			}
 		}
 	}
+
+	return items
+}
+
+func getRelationLookup(populateItems []*PopulateItem, schemaStruct *SchemaStruct) []bson.M {
+	// populate := make([]string, 0)
+
+	pipelines := make([]bson.M, 0)
+	for index, item := range populateItems {
+		// populate = append(populate, item.Name)
+		// if
+		if field, ok := schemaStruct.FieldsMap[item.Name]; ok && field.HasRelation {
+			rs := field.Relationship
+
+			localFieldKey := fmt.Sprintf("refLocalFieldKey_%s%d", rs.CollectionName, index)
+			childPipeline := []bson.M{
+				{
+					"$match": bson.M{
+						"$expr": bson.M{
+							"$eq": []string{"$" + rs.ForeignFieldKey, "$$" + localFieldKey},
+						},
+					},
+				},
+			}
+
+			if len(item.Children) > 0 && field.RelationshipStruct != nil {
+				pipelines := getRelationLookup(item.Children, field.RelationshipStruct)
+				childPipeline = append(childPipeline, pipelines...)
+			}
+
+			pipeline := bson.M{
+				"$lookup": bson.M{
+					"from":     rs.From,
+					"let":      bson.M{localFieldKey: "$" + rs.LocalFieldKey},
+					"pipeline": childPipeline,
+					"as":       rs.As,
+				},
+			}
+
+			// fmt.Println(pipeline)
+			pipelines = append(pipelines, pipeline)
+			switch rs.Kind {
+			case HasOne:
+				fallthrough
+			case BelongTo:
+				// defer func() {
+				pipelines = append(pipelines, bson.M{
+					"$unwind": bson.M{
+						"path": "$" + rs.As,
+						"preserveNullAndEmptyArrays": true,
+					},
+				})
+				// }()
+			default:
+				break
+			}
+
+		}
+
+	}
+	return pipelines
+	// for _, p := range populate {
+
+	// }
+	// rs := field.Relationship
+	// localFieldKey := "refLocalFieldKey_" + rs.CollectionName
+	// // sLocalFieldKey := "$" + localFieldKey
+
+	// childPipeline := []bson.M{
+	// 	{
+	// 		"$match": bson.M{"$expr": bson.M{
+	// 				"$eq": []string{"$" + rs.ForeignFieldKey, "$$" + localFieldKey},
+	// 			},
+	// 		},
+	// 	},
+	// }
+
+	// // if field.RelationshipStruct.
+
+	// // if field.RelationshipStruct != nil {
+	// // 	childPipeline = append(childPipeline, getRelationLookup(field.RelationshipStruct))
+	// // }
+
+	// pipeline := bson.M{
+	// 	"$lookup": {
+	// 		"from": rs.From,
+	// 		"let": bson.M{localFieldKey: "$" + rs.LocalFieldKey},
+	// 		"pipeline": childPipeline,
+	// 		"as": rs.As,
+	// 	},
+	// }
+}
+
+func (q *query) getPopulatePipeline() []bson.M {
+	populateTree := getPopulateTree(q.populate)
+
+	return getRelationLookup(populateTree, q.schemaStruct)
+
+	// documentStruct := q.documentStruct
+
+	// populate = []string{"User", "User.Profile", "User.School"}
+	// q.populate
+
+	// schemaStruct := q.schemaStruct
+	// pipeline := make([]bson.M, 0)
+
+	// for _, item := range populateTree {
+	// 	if field, ok := schemaStruct.FieldsMap[item.Name]; ok && field.HasRelation {
+	// 		rs := field.Relationship
+
+	// 		switch rs.Kind {
+	// 		case HasOne:
+	// 			fallthrough
+	// 		case BelongTo:
+	// 			pipeline
+	// 			// pipeline = append(pipeline, bson.M{
+	// 			// 	"$lookup":
+	// 			// })
+	// 		}
+	// 	}
+	// }
+
+	// for _, field := range schemaStruct.StructFields {
+	// 	if field.Relationship != nil {
+	// 		rs := field.Relationship
+	// 		switch rs.Kind {
+	// 		case HasOne:
+	// 			pipeline = append(pipeline, bson.M{
+	// 				"$lookup": bson.M{
+	// 					"from":         rs.CollectionName,
+	// 					"localField":   rs.LocalFieldKey,
+	// 					"foreignField": rs.ForeignFieldKey,
+	// 					"as":           field.ColumnName,
+	// 				},
+	// 			}, bson.M{
+	// 				"$unwind": bson.M{
+	// 					"path": "$" + field.ColumnName,
+	// 					"preserveNullAndEmptyArrays": true,
+	// 				},
+	// 			})
+	// 		case HasMany:
+	// 			pipeline = append(pipeline, bson.M{
+	// 				"$lookup": bson.M{
+	// 					"from":         rs.CollectionName,
+	// 					"localField":   rs.LocalFieldKey,
+	// 					"foreignField": rs.ForeignFieldKey,
+	// 					"as":           field.ColumnName,
+	// 				},
+	// 			})
+	// 		case BelongTo:
+	// 			pipeline = append(pipeline, bson.M{
+	// 				"$lookup": bson.M{
+	// 					"from":         rs.CollectionName,
+	// 					"localField":   rs.LocalFieldKey,
+	// 					"foreignField": rs.ForeignFieldKey,
+	// 					"as":           field.ColumnName,
+	// 				},
+	// 			}, bson.M{
+	// 				"$unwind": bson.M{
+	// 					"path": "$" + field.ColumnName,
+	// 					"preserveNullAndEmptyArrays": true,
+	// 				},
+	// 			})
+	// 			// TODO
+	// 		case BelongsTo:
+	// 		default:
+	// 		}
+	// 	}
+	// }
 	// TODO impl
 	// return make([]bson.M, 0)
-	return pipeline
+	// return pipeline
 }
 
 func (q *query) buildPipeQuery() *mgo.Pipe {

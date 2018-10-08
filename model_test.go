@@ -1,6 +1,7 @@
 package monger
 
 import (
+	"fmt"
 	"testing"
 
 	"gopkg.in/mgo.v2/bson"
@@ -66,6 +67,26 @@ func TestCreateFuncOK(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NoError(t, err2)
+}
+
+func TestPopulateFuncOK(t *testing.T) {
+	connect := conn()
+	MemberModel := connect.M("Member")
+	// ProfileModel := connect.M("Profile")
+	member := new(Member)
+	query := MemberModel.Where(bson.M{
+		"_id": bson.ObjectIdHex("5bb86b3c16a44b4c69e667f9"),
+	}).Populate("Profile")
+
+	err := query.FindOne(member)
+
+	fmt.Println(member)
+
+	if err != nil {
+		assert.Error(t, err)
+	}
+
+	assert.Equal(t, member.ID.Hex(), "5bb86b3c16a44b4c69e667f9")
 }
 
 func conn() Connection {

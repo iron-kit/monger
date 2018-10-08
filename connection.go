@@ -69,9 +69,14 @@ func (conn *connection) Open() error {
 
 	session, err := mgo.DialWithInfo(dialInfo)
 
+	// mgo.SetDebug(true)
+	// mgo.SetLogger(new(logger))
+
 	if err != nil {
 		return err
 	}
+	// session.
+	// session.SetMode(mgo.Monotonic)
 	session.SetMode(mgo.Monotonic, true)
 	conn.Session = session
 	return nil

@@ -39,7 +39,7 @@ func isImplementsSchemer(t reflect.Type) bool {
 	return false
 }
 
-func getSchemaTypeName(schema Schemer) string {
+func getSchemaTypeName(schema interface{}) string {
 	reflectType := reflect.TypeOf(schema)
 	typeName := reflectType.Elem().Name()
 	return snakeString(typeName)

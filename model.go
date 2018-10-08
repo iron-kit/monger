@@ -68,8 +68,10 @@ func (m *model) query() Query {
 
 func (m *model) getSchemaStruct() *SchemaStruct {
 	if m.schemaStruct == nil {
-		m.schemaStruct = getStructInfoOfSchema(m.schema, m.connection)
+		// m.schemaStruct = getStructInfoOfSchema(m.schema, m.connection)
+		m.schemaStruct = GetSchemaStruct(m.schema)
 	}
+
 	return m.schemaStruct
 }
 
@@ -150,12 +152,7 @@ func (m *model) getCollectionName() string {
 }
 
 func newModel(connection *connection, schema Schemer) Model {
-	collectionName := ""
-	if nameGetter, ok := schema.(SchemaNameGetter); ok {
-		collectionName = nameGetter.GetSchemaName()
-	} else {
-		collectionName = getSchemaTypeName(schema)
-	}
+	collectionName := getCollectionName(schema)
 
 	collection := connection.Session.DB("").C(collectionName)
 	return &model{
@@ -165,4 +162,15 @@ func newModel(connection *connection, schema Schemer) Model {
 		collection:     collection,
 		collectionName: collectionName,
 	}
+}
+
+func getCollectionName(schema interface{}) string {
+	collectionName := ""
+	if nameGetter, ok := schema.(SchemaNameGetter); ok {
+		collectionName = nameGetter.GetSchemaName()
+	} else {
+		collectionName = getSchemaTypeName(schema)
+	}
+
+	return collectionName
 }

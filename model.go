@@ -1,6 +1,8 @@
 package monger
 
 import (
+	"fmt"
+
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
@@ -88,7 +90,7 @@ func (m *model) Upsert(condition bson.M, data interface{}) (*mgo.ChangeInfo, err
 }
 
 func (m *model) Update(condition bson.M, data interface{}) error {
-
+	fmt.Println(data)
 	return m.query().Update(condition, data)
 }
 

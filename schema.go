@@ -22,9 +22,9 @@ type Schemer interface {
 }
 
 type Schema struct {
-	ID        bson.ObjectId `json:"id" bson:"_id"`
-	CreatedAt time.Time     `json:"created_at" bson:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at" bson:"updated_at"`
+	ID        bson.ObjectId `json:"id" bson:"_id,omitempty"`
+	CreatedAt time.Time     `json:"created_at" bson:"created_at,omitempty"`
+	UpdatedAt time.Time     `json:"updated_at" bson:"updated_at,omitempty"`
 	Deleted   bool          `json:"-" bson:"deleted"`
 	isUpdated bool
 }

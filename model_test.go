@@ -34,6 +34,37 @@ type Profile struct {
 
 // }
 
+func TestModelUpdate(t *testing.T) {
+	c := conn()
+
+	MemberModel := c.M("Member")
+	// ProfileModel := c.M("Profile")
+
+	m := Member{}
+	a := Member{}
+
+	m.Username = "AAlicss"
+
+	// if s, ok := m.(Schemer); ok {
+	// 	fmt.Println("sssss")
+	// }
+	err := MemberModel.Update(
+		bson.M{"_id": bson.ObjectIdHex("5bb8649f16a44b47ae85aa41")},
+		&m,
+	)
+
+	if err != nil {
+		fmt.Println(err)
+	}
+	// MemberModel.Update
+
+	MemberModel.FindByID(bson.ObjectIdHex("5bb8649f16a44b47ae85aa41"), &a)
+
+	assert.Equal(t, a.Username, "AAlicss")
+	// assert.
+
+}
+
 func TestModelRegsiterOK(t *testing.T) {
 	conn, _ := Connect(
 		Hosts([]string{"localhost"}),

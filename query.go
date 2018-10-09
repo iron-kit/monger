@@ -560,37 +560,38 @@ func (q *query) Create(doc interface{}) error {
 }
 
 func (q *query) execUpdate(data interface{}, f func(d interface{})) {
-	if doc, ok := data.(Schemer); ok {
-		doc.beforeUpdate()
-		defer doc.afterUpdate()
-
-		f(bson.M{"$set": doc})
-
-		return
-	}
-
 	// datat := reflect.TypeOf(data)
-
 	datav := reflect.ValueOf(data)
-
-	// datav.SetMapIn
-	for {
-		if datav.Kind() != reflect.Ptr {
-			break
-		}
+	for datav.Kind() == reflect.Ptr {
 		datav = datav.Elem()
 	}
-	// reflect.
-	t := reflect.MapOf(reflect.TypeOf(""), reflect.TypeOf(new(interface{})))
+
+	if isImplementsSchemer(datav.Type()) {
+
+		if reflect.TypeOf(data).Kind() == reflect.Struct {
+			panic("the doc must be a pointer")
+		}
+
+		if doc, ok := data.(Schemer); ok {
+			doc.beforeUpdate()
+			defer doc.afterUpdate()
+			f(bson.M{"$set": doc})
+		}
+	}
 
 	switch datav.Kind() {
-	case t.Kind():
-		mapData := datav.Interface().(map[string]interface{})
+	case reflect.Map:
+		vv := datav.Interface()
+		mapData := vv.(bson.M)
 		foundSet := false
 		now := time.Now()
 		for k, val := range mapData {
 			if k == "$set" {
 				foundSet = true
+
+				if d, ok := val.(bson.M); ok {
+					d["updated_at"] = now
+				}
 
 				if d, ok := val.(map[string]interface{}); ok {
 					d["updated_at"] = now
@@ -607,10 +608,18 @@ func (q *query) execUpdate(data interface{}, f func(d interface{})) {
 		if !foundSet {
 			mapData["updated_at"] = now
 		}
+
 		f(data)
+
+	case reflect.Struct:
+		f(bson.M{"$set": data})
 	default:
 		f(data)
 	}
+
+	// defer func() {
+	// 	fmt.Println(data, "data")
+	// }()
 }
 
 func (q *query) Update(condition bson.M, doc interface{}) (err error) {

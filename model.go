@@ -22,7 +22,7 @@ type Model interface {
 	FindByID(id bson.ObjectId, doc interface{}) error
 	Where(...bson.M) Query
 	Select(...bson.M) Query
-	Aggregate([]bson.M) *mgo.Pipe
+	Aggregate([]bson.M) Query
 	Delete(bson.M) error
 	ForceDelete(bson.M) error
 	DeleteAll(bson.M) error
@@ -145,7 +145,7 @@ func (m *model) Select(selector ...bson.M) Query {
 	return m.query().Select(nil)
 }
 
-func (m *model) Aggregate(pipe []bson.M) *mgo.Pipe {
+func (m *model) Aggregate(pipe []bson.M) Query {
 	return m.query().Aggregate(pipe)
 }
 

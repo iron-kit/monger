@@ -56,7 +56,8 @@ type Query interface {
 	Skip(skip int) Query
 	Limit(limit int) Query
 	Sort(fields ...string) Query
-	Aggregate([]bson.M) *mgo.Pipe
+	Aggregate([]bson.M) Query
+	Pipe(...bson.M) *mgo.Pipe
 }
 
 type query struct {
@@ -73,6 +74,10 @@ type query struct {
 	pipeline       []bson.M
 	multiple       bool
 	schemaStruct   *SchemaStruct
+}
+
+func (q *query) Pipe(pipes ...bson.M) *mgo.Pipe {
+	return q.buildPipeQuery(pipes...)
 }
 
 func (q *query) OnlyTrashed() Query {
@@ -120,7 +125,40 @@ func (q *query) Skip(skip int) Query {
 	return q
 }
 
+func (q *query) usePipeline() bool {
+	if len(q.pipeline) > 0 || len(q.populate) > 0 {
+		return true
+	}
+
+	return false
+}
+
 func (q *query) Count() int {
+
+	if q.usePipeline() {
+		appendPipes := []bson.M{
+			{
+				"$group": bson.M{
+					"_id": "null",
+					"count": bson.M{
+						"$sum": 1,
+					},
+				},
+			},
+			{
+				"$project": bson.M{"_id": 0},
+			},
+		}
+		result := struct {
+			Total int `bson:"count"`
+		}{}
+
+		q.buildPipeQuery(appendPipes...).One(&result)
+
+		return result.Total
+		// q.pipeline = append(q.pipeline, )
+	}
+
 	c, err := q.collection.Find(q.where).Count()
 	if err != nil {
 		return 0
@@ -209,10 +247,16 @@ func (q *query) FindAll(result interface{}) error {
 	return q.exec(result)
 }
 
-func (q *query) Aggregate(pipe []bson.M) *mgo.Pipe {
-	q.pipeline = pipe
+func (q *query) Aggregate(pipe []bson.M) Query {
+	if len(q.pipeline) > 0 {
+		q.pipeline = append(q.pipeline, pipe...)
 
-	return q.buildPipeQuery()
+		return q
+	}
+
+	q.pipeline = pipe
+	return q
+	// return q.buildPipeQuery()
 }
 
 func (q *query) buildQuery() *mgo.Query {
@@ -449,7 +493,7 @@ func (q *query) getPopulatePipeline() []bson.M {
 	// return pipeline
 }
 
-func (q *query) buildPipeQuery() *mgo.Pipe {
+func (q *query) buildPipeQuery(appendPipes ...bson.M) *mgo.Pipe {
 	pipeline := make([]bson.M, 0)
 
 	if len(q.populate) > 0 {
@@ -479,6 +523,10 @@ func (q *query) buildPipeQuery() *mgo.Pipe {
 		q.pipeline = pipeline
 	} else {
 		q.pipeline = append(q.pipeline, pipeline...)
+	}
+
+	if len(appendPipes) > 0 {
+		q.pipeline = append(q.pipeline, appendPipes...)
 	}
 
 	return q.collection.Pipe(q.pipeline)
@@ -521,14 +569,14 @@ func (q *query) exec(result interface{}) error {
 			return &InvalidParamsError{NewError("The result must be a slice")}
 		}
 
-		if len(q.populate) > 0 {
+		if q.usePipeline() {
 			return q.execPipeMuli(result)
 		}
 
 		return q.execMuli(result)
 	}
 
-	if len(q.populate) > 0 {
+	if q.usePipeline() {
 		return q.execPipeOne(result)
 	}
 

@@ -211,6 +211,25 @@ func (q *query) Populate(fields ...string) Query {
 	return q
 }
 
+func executeWhere(in interface{}, condition bson.M) {
+	if w, ok := in.(bson.M); ok {
+		for key, val := range condition {
+			switch v := val.(type) {
+			case string:
+				if bson.IsObjectIdHex(v) {
+					w[key] = bson.ObjectIdHex(v)
+				} else {
+					w[key] = v
+				}
+			case bson.M:
+				executeWhere(w[key], v)
+			default:
+				w[key] = val
+			}
+		}
+	}
+}
+
 func (q *query) Where(condition bson.M) Query {
 
 	// panic("not implemented")
@@ -218,9 +237,7 @@ func (q *query) Where(condition bson.M) Query {
 		q.where = make(bson.M)
 	}
 
-	for key, val := range condition {
-		q.where[key] = val
-	}
+	executeWhere(q.where, condition)
 
 	if !q.offSoftDeletes {
 		if !q.withTrashed {

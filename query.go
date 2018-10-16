@@ -58,6 +58,7 @@ type Query interface {
 	Sort(fields ...string) Query
 	Aggregate([]bson.M) Query
 	Pipe(...bson.M) *mgo.Pipe
+	Query() Query
 }
 
 type query struct {
@@ -74,6 +75,11 @@ type query struct {
 	pipeline       []bson.M
 	multiple       bool
 	schemaStruct   *SchemaStruct
+}
+
+func (q *query) Query() Query {
+	qCopy := *q
+	return &qCopy
 }
 
 func (q *query) Pipe(pipes ...bson.M) *mgo.Pipe {

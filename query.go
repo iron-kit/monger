@@ -598,7 +598,7 @@ func (q *query) Create(doc interface{}) error {
 		return nil
 	}
 	if d, ok := doc.(Schemer); ok {
-		d.beforeCreate()
+		d.beforeCreate(doc)
 		q.collection.Insert(doc)
 		d.afterCreate()
 		return nil
@@ -621,7 +621,7 @@ func (q *query) execUpdate(data interface{}, f func(d interface{})) {
 		}
 
 		if doc, ok := data.(Schemer); ok {
-			doc.beforeUpdate()
+			doc.beforeUpdate(data)
 			defer doc.afterUpdate()
 			f(bson.M{"$set": doc})
 		}
@@ -646,7 +646,7 @@ func (q *query) execUpdate(data interface{}, f func(d interface{})) {
 				}
 
 				if d, ok := val.(Schemer); ok {
-					d.beforeUpdate()
+					d.beforeUpdate(data)
 
 					defer d.afterUpdate()
 				}

@@ -227,8 +227,8 @@ func executeWhere(in interface{}, condition bson.M) {
 				} else {
 					w[key] = v
 				}
-			case bson.M:
-				executeWhere(w[key], v)
+			// case bson.M:
+			// 	executeWhere(w[key], v)
 			default:
 				w[key] = val
 			}

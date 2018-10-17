@@ -12,7 +12,7 @@ Model is mongodb actoin model
 */
 type Model interface {
 	OffSoftDeletes() Query
-	UpsertID(id bson.ObjectId, data interface{}) (*mgo.ChangeInfo, error)
+	UpsertID(id interface{}, data interface{}) (*mgo.ChangeInfo, error)
 	Upsert(condition bson.M, data interface{}) (*mgo.ChangeInfo, error)
 	Update(condition bson.M, data interface{}) error
 	Count(condition ...bson.M) int

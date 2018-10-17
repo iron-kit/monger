@@ -81,7 +81,7 @@ func (m *model) OffSoftDeletes() Query {
 	return m.query().OffSoftDeletes()
 }
 
-func (m *model) UpsertID(id bson.ObjectId, data interface{}) (*mgo.ChangeInfo, error) {
+func (m *model) UpsertID(id interface{}, data interface{}) (*mgo.ChangeInfo, error) {
 	return m.query().UpsertID(id, data)
 }
 

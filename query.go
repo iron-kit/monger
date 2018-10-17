@@ -695,14 +695,18 @@ func (q *query) execUpdate(data interface{}, f func(d interface{})) {
 
 func (q *query) Update(condition bson.M, doc interface{}) (err error) {
 	// panic("not implemented")
+	cond := bson.M{}
+	executeWhere(cond, condition)
 	q.execUpdate(doc, func(d interface{}) {
-		err = q.collection.Update(condition, d)
+		err = q.collection.Update(cond, d)
 	})
 
 	return
 }
 
 func (q *query) Upsert(condition bson.M, docs interface{}) (changeInfo *mgo.ChangeInfo, err error) {
+	cond := bson.M{}
+	executeWhere(cond, condition)
 	q.execUpdate(docs, func(d interface{}) {
 		changeInfo, err = q.collection.Upsert(condition, d)
 	})
@@ -711,6 +715,13 @@ func (q *query) Upsert(condition bson.M, docs interface{}) (changeInfo *mgo.Chan
 }
 
 func (q *query) UpsertID(id interface{}, docs interface{}) (changeInfo *mgo.ChangeInfo, err error) {
+	// cond := bson.M{}
+	if ids, ok := id.(string); ok {
+		if bson.IsObjectIdHex(ids) {
+			id = bson.ObjectIdHex(ids)
+		}
+	}
+	// executeWhere(cond, condition)
 	q.execUpdate(docs, func(d interface{}) {
 		changeInfo, err = q.collection.UpsertId(id, d)
 	})

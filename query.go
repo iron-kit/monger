@@ -217,23 +217,62 @@ func (q *query) Populate(fields ...string) Query {
 	return q
 }
 
-func executeWhere(in interface{}, condition bson.M) {
-	if w, ok := in.(bson.M); ok {
-		for key, val := range condition {
-			switch v := val.(type) {
-			case string:
-				if bson.IsObjectIdHex(v) {
-					w[key] = bson.ObjectIdHex(v)
-				} else {
-					w[key] = v
-				}
-			// case bson.M:
-			// 	executeWhere(w[key], v)
-			default:
-				w[key] = val
+func toWhere(condition bson.M) bson.M {
+	result := bson.M{}
+	for key, val := range condition {
+		switch v := val.(type) {
+		case string:
+			if bson.IsObjectIdHex(v) {
+				result[key] = bson.ObjectIdHex(v)
+			} else {
+				result[key] = v
 			}
+		case bson.M:
+			result[key] = toWhere(v)
+		case []bson.M:
+			items := make([]bson.M, 0)
+			for _, item := range v {
+				items = append(items, toWhere(item))
+			}
+			result[key] = items
+		default:
+			result[key] = v
 		}
 	}
+
+	return result
+}
+
+func executeWhere(in interface{}, condition bson.M) bson.M {
+	condition = toWhere(condition)
+	fmt.Println(condition, "Where")
+	if w, ok := in.(bson.M); ok {
+		for key, val := range condition {
+			w[key] = val
+		}
+		// for key, val := range condition {
+		// 	switch v := val.(type) {
+		// 	case string:
+		// 		if bson.IsObjectIdHex(v) {
+		// 			w[key] = bson.ObjectIdHex(v)
+		// 		} else {
+		// 			w[key] = v
+		// 		}
+		// 	case []bson.M:
+		// 		for i, val := range v {
+		// 			w[key][i] = executeWhere(val, v)
+		// 		}
+		// 	case bson.M:
+		// 		w[key] = executeWhere(val, v)
+		// 	default:
+		// 		w[key] = val
+		// 	}
+		// }
+
+		return w
+	}
+
+	return bson.M{}
 }
 
 func (q *query) Where(condition bson.M) Query {
@@ -244,6 +283,8 @@ func (q *query) Where(condition bson.M) Query {
 	}
 
 	executeWhere(q.where, condition)
+
+	fmt.Println(q.where, "where")
 
 	if !q.offSoftDeletes {
 		if !q.withTrashed {
@@ -401,7 +442,7 @@ func getRelationLookup(populateItems []*PopulateItem, schemaStruct *SchemaStruct
 
 	}
 
-	fmt.Println(pipelines)
+	// fmt.Println(pipelines)
 	return pipelines
 	// for _, p := range populate {
 

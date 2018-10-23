@@ -59,7 +59,10 @@ func (s *Schema) beforeCreate(value interface{}) error {
 	s.CreatedAt = now
 	s.UpdatedAt = now
 	s.Deleted = false
-	s.value = value
+	if s.value == nil {
+		s.value = value
+	}
+
 	return nil
 }
 
@@ -69,7 +72,11 @@ func (s *Schema) afterCreate() error {
 }
 
 func (s *Schema) beforeUpdate(value interface{}) error {
+	if s.value == nil {
+		s.value = value
+	}
 	s.isUpdated = false
+
 	s.UpdatedAt = time.Now()
 	return nil
 }

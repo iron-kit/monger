@@ -28,6 +28,7 @@ type Model interface {
 	Restore(bson.M) error
 	getCollectionName() string
 	getSchemaStruct() *SchemaStruct
+	Collection() *mgo.Collection
 }
 
 type model struct {
@@ -36,6 +37,10 @@ type model struct {
 	collection     *mgo.Collection
 	connection     Connection
 	collectionName string
+}
+
+func (m *model) Collection() *mgo.Collection {
+	return m.collection
 }
 
 func (m *model) Restore(condition bson.M) error {

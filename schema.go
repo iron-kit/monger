@@ -55,7 +55,13 @@ func getSchemaTypeName(schema interface{}) string {
 func (s *Schema) beforeCreate(value interface{}) error {
 	s.isUpdated = false
 	now := time.Now()
-	s.ID = bson.NewObjectId()
+
+	fmt.Println("Before Create")
+	if len(s.ID) == 0 {
+		fmt.Println("After Create")
+		s.ID = bson.NewObjectId()
+	}
+
 	s.CreatedAt = now
 	s.UpdatedAt = now
 	s.Deleted = false
@@ -116,7 +122,7 @@ func (s *Schema) GetBSON() (interface{}, error) {
 	// fmt.Println(docv)
 
 	for _, field := range docStruct.Fields {
-		if field.Relationship != nil {
+		if field.Relationship != nil && field.Relationship.Kind != Default {
 			// 忽略关联关系字段
 			continue
 		}
@@ -140,7 +146,7 @@ func (s *Schema) GetBSON() (interface{}, error) {
 		mapData[field.ColumnName] = val.Interface()
 
 	}
-	fmt.Println("monger GetBSON:", mapData)
+	// fmt.Println("monger GetBSON:", mapData)
 	// log.Println("monger GetBSON:", mapData)
 	return mapData, nil
 }

@@ -1,6 +1,7 @@
 package monger
 
 import (
+	"fmt"
 	"go/ast"
 	"reflect"
 	"sync"
@@ -30,9 +31,10 @@ type SchemaField struct {
 	HasRelation        bool
 	Zero               reflect.Value
 	RelationshipStruct *SchemaStruct
+	IsSlice            bool
 }
 
-func GetSchemaStruct(schema interface{}) *SchemaStruct {
+func GetSchemaStruct(schema interface{}, prefixAs ...string) *SchemaStruct {
 	var schemaStruct SchemaStruct
 	var schemaType reflect.Type
 
@@ -131,6 +133,7 @@ func GetSchemaStruct(schema interface{}) *SchemaStruct {
 			// OneToMany / ManyToMany
 			case reflect.Slice:
 				schemaField.HasRelation = true
+				schemaField.IsSlice = true
 				defer func(field *SchemaField) {
 					var (
 						localFieldKey   string
@@ -157,27 +160,36 @@ func GetSchemaStruct(schema interface{}) *SchemaStruct {
 					if foreignField := field.TagMap["FOREIGNFIELD"]; foreignField != "" {
 						foreignFieldKey = foreignField
 					}
-
-					if elemType.Kind() == reflect.Struct && isImplementsSchemer(elemType) {
+					isSchemer := isImplementsSchemer(elemType)
+					if elemType.Kind() == reflect.Struct {
 						collectionName := getCollectionName(elemValue.Interface())
+						columnName := field.ColumnName
+						if len(prefixAs) > 0 {
+							columnName = fmt.Sprintf("%s.%s", prefixAs[0], columnName)
+						}
 						rs := &Relationship{
 							RelationType:    elemType,
 							From:            collectionName,
 							CollectionName:  collectionName,
-							As:              field.ColumnName,
+							As:              columnName,
 							LocalFieldKey:   localFieldKey,
 							ForeignFieldKey: foreignFieldKey,
 						}
-						if _, ok := field.TagMap["HASMANY"]; ok {
+
+						if _, ok := field.TagMap["HASMANY"]; ok && isSchemer {
 							rs.Kind = HasMany
 						} else {
-							// now just support has many, don't support many to many
-							return
+							rs.Kind = Default
 						}
 
 						field.Relationship = rs
 						v := reflect.New(elemType)
-						field.RelationshipStruct = GetSchemaStruct(v.Interface())
+						if rs.Kind == Default {
+							field.RelationshipStruct = GetSchemaStruct(v.Interface(), rs.As)
+						} else {
+							field.RelationshipStruct = GetSchemaStruct(v.Interface())
+						}
+
 						schemaStruct.RelationFields = append(schemaStruct.RelationFields, field)
 						// docStruct.RelationFields = append(docStruct.RelationFields, field)
 					}
@@ -204,11 +216,15 @@ func GetSchemaStruct(schema interface{}) *SchemaStruct {
 
 					elemValue = reflect.New(elemType)
 					collectionName := getCollectionName(elemValue.Interface())
+					columnName := field.ColumnName
+					if len(prefixAs) > 0 {
+						columnName = fmt.Sprintf("%s.%s", prefixAs[0], columnName)
+					}
 					rs := &Relationship{
 						RelationType:   elemType,
 						From:           collectionName,
 						CollectionName: collectionName,
-						As:             field.ColumnName,
+						As:             columnName,
 					}
 
 					if _, ok := field.TagMap["HASONE"]; ok {
@@ -216,6 +232,8 @@ func GetSchemaStruct(schema interface{}) *SchemaStruct {
 
 					} else if _, ok := field.TagMap["BELONGTO"]; ok {
 						rs.Kind = BelongTo
+					} else {
+						rs.Kind = Default
 					}
 
 					if rs.Kind == "" {
@@ -243,7 +261,12 @@ func GetSchemaStruct(schema interface{}) *SchemaStruct {
 					rs.LocalFieldKey = localFieldKey
 					field.Relationship = rs
 					v := reflect.New(elemType)
-					field.RelationshipStruct = GetSchemaStruct(v.Interface())
+					if rs.Kind == Default {
+						field.RelationshipStruct = GetSchemaStruct(v.Interface(), rs.As)
+					} else {
+						field.RelationshipStruct = GetSchemaStruct(v.Interface())
+					}
+
 					schemaStruct.RelationFields = append(schemaStruct.RelationFields, field)
 					// docStruct.RelationFields = append(docStruct.RelationFields, field)
 

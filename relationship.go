@@ -7,6 +7,7 @@ const (
 	HasMany   string = "HAS_MANY"
 	BelongTo  string = "BELONG_TO"
 	BelongsTo string = "BELONGS_TO"
+	Default   string = "DEFAULT"
 )
 
 type Relationship struct {

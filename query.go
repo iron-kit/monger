@@ -1,6 +1,7 @@
 package monger
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -382,16 +383,43 @@ func getPopulateTree(populate []string) []*PopulateItem {
 	return items
 }
 
-func getRelationLookup(populateItems []*PopulateItem, schemaStruct *SchemaStruct) []bson.M {
+type lookupConfig struct {
+	SimpleMutiRelateMode bool
+	SimpleMutiField      *SchemaField
+	DefaultSchemaStruct  *SchemaStruct
+}
+
+func getRelationLookup(populateItems []*PopulateItem, schemaStruct *SchemaStruct, cfgs ...*lookupConfig) []bson.M {
 	// populate := make([]string, 0)
+	// cfg := new(lookupConfig)
+	// if len(cfgs) > 0 {
+	// 	cfg = cfgs[0]
+	// }
 
 	pipelines := make([]bson.M, 0)
+	// if cfg.SimpleMutiRelateMode {
+	// 	pipelines = append(pipelines, bson.M{
+	// 		"$unwind": "$" + cfg.SimpleMutiField.ColumnName,
+	// 	})
+	// }
 	for index, item := range populateItems {
+
 		// populate = append(populate, item.Name)
 		// if
+		// TODO
 		if field, ok := schemaStruct.FieldsMap[item.Name]; ok && field.HasRelation {
 			rs := field.Relationship
+			if rs == nil {
+				continue
+			}
+			if rs != nil && rs.Kind == Default {
+				if len(item.Children) > 0 && field.RelationshipStruct != nil {
 
+					pipes := getRelationLookup(item.Children, field.RelationshipStruct)
+					pipelines = append(pipelines, pipes...)
+				}
+				continue
+			}
 			localFieldKey := fmt.Sprintf("refLocalFieldKey_%s%d", rs.CollectionName, index)
 			childPipeline := []bson.M{
 				{
@@ -429,7 +457,7 @@ func getRelationLookup(populateItems []*PopulateItem, schemaStruct *SchemaStruct
 				// defer func() {
 				pipelines = append(pipelines, bson.M{
 					"$unwind": bson.M{
-						"path": "$" + rs.As,
+						"path":                       "$" + rs.As,
 						"preserveNullAndEmptyArrays": true,
 					},
 				})
@@ -442,6 +470,23 @@ func getRelationLookup(populateItems []*PopulateItem, schemaStruct *SchemaStruct
 
 	}
 
+	// if cfg.SimpleMutiRelateMode {
+	// 	groupMap := bson.M{
+	// 		"_id": "$_id",
+	// 	}
+
+	// 	for _, f := range cfg.DefaultSchemaStruct.Fields {
+	// 		if f.ColumnName == cfg.SimpleMutiField.ColumnName {
+	// 			groupMap[f.ColumnName] = bson.M{
+	// 				"$push": f.ColumnName,
+	// 			}
+	// 		}
+	// 		groupMap[f.ColumnName] = "$" + f.ColumnName
+	// 	}
+	// 	pipelines = append(pipelines, bson.M{
+	// 		"$group": groupMap,
+	// 	})
+	// }
 	// fmt.Println(pipelines)
 	return pipelines
 	// for _, p := range populate {
@@ -562,6 +607,8 @@ func (q *query) buildPipeQuery(appendPipes ...bson.M) *mgo.Pipe {
 
 	if len(q.populate) > 0 {
 		pipes := q.getPopulatePipeline()
+		b, _ := json.Marshal(pipes)
+		fmt.Println(string(b))
 		pipeline = append(pipeline, pipes...)
 	}
 
@@ -776,3 +823,45 @@ func newQuery(coll *mgo.Collection, sinfo *SchemaStruct) Query {
 		schemaStruct: sinfo,
 	}
 }
+
+// db.getCollection('conversation').aggregate([
+// 	{
+// 			"$lookup":{
+// 					"as":"members.user",
+// 					"from":"member",
+// 					"let":{"refLocalFieldKey_member0":"$user_id"},
+// 					"pipeline":[
+// 							{
+// 									"$match":{
+// 											"$expr":{"$eq":["$_id","$$refLocalFieldKey_member0"]}
+// 									}
+// 							},
+// 							{
+// 									"$lookup":{
+// 											"as":"profile",
+// 											"from":"profile",
+// 											"let":{"refLocalFieldKey_profile0":"$_id"},
+// 											"pipeline":[
+// 													{
+// 															"$match":{
+// 																	"$expr":{
+// 																			"$eq":["$user_id","$$refLocalFieldKey_profile0"]
+// 																	 }
+// 															 }
+// 													 }
+// 											 ]
+// 									 }
+// 							 },
+// 							 {
+// 									 "$unwind":{"path":"$profile","preserveNullAndEmptyArrays":true}
+// 							 }
+// 					 ]
+// 			 }
+// 	 },
+// 	 {
+// 			 "$unwind":{
+// 					 "path":"$members.user",
+// 					 "preserveNullAndEmptyArrays":true
+// 			 }
+// 	 }
+// ])

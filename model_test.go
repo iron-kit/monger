@@ -1,6 +1,7 @@
 package monger
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -13,6 +14,25 @@ type Task struct {
 	Schema   `json:",inline" bson:",inline"`
 	TaskName string
 	Member   *Member `json:"member,omitempty" bson:"member,omitempty" monger:"hasOne,foreignKey=task_id"`
+}
+
+type ConversationMember struct {
+	UserID   bson.ObjectId `json:"user_id,omitempty" bson:"user_id,omitempty"`
+	User     *Member       `json:"user,omitempty" bson:"user,omitempty" monger:"belongTo,foreignKey=user_id"`
+	Nickname string        `json:"nickname,omitempty" bson:"nickname,omitempty"`
+	IsTop    bool          `json:"is_top,omitempty" bson:"is_top,omitempty"`
+}
+
+type Conversation struct {
+	Schema `json:",inline" bson:",inline"`
+
+	Kind            string               `json:"kind,omitempty"  bson:"kind,omitempty"`                 // 会话类型 'group': 群组, 'simple': 简单（私聊）, 'temporary': 临时
+	Name            string               `json:"name,omitempty"  bson:"name,omitempty"`                 // 会话名称(群组会话时有效)
+	Avatar          string               `json:"avatar,omitempty"  bson:"avatar,omitempty"`             // 头像
+	Members         []ConversationMember `json:"members,omitempty"  bson:"members,omitempty"`           // 会话涉及用户
+	Master          bson.ObjectId        `json:"master,omitempty"  bson:"master,omitempty"`             // 会话管理者
+	IsStartValidate bool                 `json:"is_start_validate,omitempty"  bson:"is_start_validate"` // 是否开启验证
+	IsTop           bool                 `json:"is_top,omitempty"  bson:"is_top"`                       // 是否置顶
 }
 
 type Member struct {
@@ -157,9 +177,24 @@ func TestPopulateFuncOK(t *testing.T) {
 	assert.Equal(t, member.ID.Hex(), "5bb86b3c16a44b4c69e667f9")
 }
 
+func TestArrayPopulateFuncOK(t *testing.T) {
+	connect := conn()
+	ConversationMdl := connect.M("Conversation")
+
+	conversation := new(Conversation)
+
+	ConversationMdl.
+		Where(bson.M{"_id": bson.ObjectIdHex("5bd966eb0f8c5c00019c597b")}).
+		Populate("Members", "Members.User", "Members.User.Profile").
+		FindOne(conversation)
+	b, _ := json.Marshal(conversation)
+	fmt.Println(string(b))
+	assert.Equal(t, conversation.ID.Hex(), "5bd966eb0f8c5c00019c597b")
+}
+
 func conn() Connection {
 	conn, _ := Connect(
-		Hosts([]string{"localhost"}),
+		Hosts([]string{"7.7.1.226"}),
 		DBName("monger_test"),
 	)
 
@@ -167,6 +202,7 @@ func conn() Connection {
 		new(Member),
 		new(Profile),
 		new(Task),
+		new(Conversation),
 	)
 
 	return conn
